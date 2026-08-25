@@ -1,0 +1,22 @@
+{
+  "name": "esc-cold-calling-copilot",
+  "version": "1.0.0",
+  "description": "ESC Cold Calling Minimalist Cockpit & Real-time Live Sync Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check persistent_store.js && node --check test_node_server.js",
+    "test:python": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_calling_engine.py",
+    "test:node": "node --test test_node_server.js",
+    "test": "npm run test:python && npm run test:node",
+    "verify": "npm run check && npm test"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "express": "^4.22.2",
+    "mysql2": "^3.24.2"
+  },
+  "engines": {
+    "node": ">=20.0.0 <25"
+  }
+}

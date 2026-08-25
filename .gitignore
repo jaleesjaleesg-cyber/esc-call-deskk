@@ -1,0 +1,24 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Installed dependencies and generated caches
+node_modules/
+__pycache__/
+*.py[cod]
+
+# Live mutable workspace data (stored in Hostinger MySQL in production)
+pipeline_state.json
+pipeline_state.json.bak
+call_history.json
+workspace_settings.json
+deleted_companies.json
+snapshots/
+
+# Generated/local-only artifacts
+deploy/
+logs/
+companies_intelligence_data.js
+repomix-output.xml
+*.zip
