@@ -83,7 +83,10 @@ test('Node server preserves routing revisions and tombstones deleted companies',
     TEST123: { crn: 'TEST123', company_name: 'Delete Me Ltd' },
     KEEP123: {
       crn: 'KEEP123', company_name: 'Keep Me Ltd', prospect_status: 'REGISTRY_PROSPECT',
-      pipeline_list: 'reached', call_notes: 'Preserve this live note', is_pinned: true
+      pipeline_list: 'reached', call_notes: 'Preserve this live note', is_pinned: true,
+      decision_makers: [{ name: 'Example Director', role: 'Director' }],
+      investigation_report_preview: 'Short research preview.',
+      investigation_report_full: '# Full private research dossier\nDetailed evidence.'
     }
   });
   writeJson(dataDir, 'pipeline_state.json', { TEST123: { pipeline_list: 'todays_targets' } });
@@ -101,12 +104,25 @@ test('Node server preserves routing revisions and tombstones deleted companies',
   await waitForServer(child);
 
   const baseUrl = `http://127.0.0.1:${port}`;
+  assert.equal((await fetch(`${baseUrl}/api/company-index`)).status, 401);
+  assert.equal((await fetch(`${baseUrl}/api/company/KEEP123`)).status, 401);
   const cookie = await login(baseUrl, 'jalees', 'jalees');
   const aroosaCookie = await login(baseUrl, 'aroosa', 'aroosa');
 
   let response = await api(baseUrl, cookie, '/api/companies');
   let companies = await response.json();
   assert.deepEqual(Object.keys(companies).sort(), ['KEEP123', 'TEST123']);
+
+  response = await api(baseUrl, cookie, '/api/company-index');
+  const companyIndex = await response.json();
+  assert.deepEqual(Object.keys(companyIndex).sort(), ['KEEP123', 'TEST123']);
+  assert.equal(companyIndex.KEEP123._summary_only, true);
+  assert.equal(companyIndex.KEEP123.investigation_report_full, undefined);
+  assert.equal(companyIndex.KEEP123.decision_makers[0].name, 'Example Director');
+
+  response = await api(baseUrl, cookie, '/api/company/KEEP123');
+  const companyDetail = await response.json();
+  assert.equal(companyDetail.investigation_report_full, '# Full private research dossier\nDetailed evidence.');
 
   response = await api(baseUrl, cookie, '/api/companies/delete', {
     method: 'POST',
@@ -118,6 +134,9 @@ test('Node server preserves routing revisions and tombstones deleted companies',
   companies = await response.json();
   assert.deepEqual(Object.keys(companies), ['KEEP123']);
   assert.ok(JSON.parse(fs.readFileSync(path.join(dataDir, 'deleted_companies.json'), 'utf8')).TEST123);
+
+  response = await api(baseUrl, cookie, '/api/company/TEST123');
+  assert.equal(response.status, 404);
 
   const researchArtifact = {
     schema_version: 'esc-research-import/v1',
@@ -182,6 +201,9 @@ test('Node server preserves routing revisions and tombstones deleted companies',
   assert.equal(companies.KEEP123.pipeline_list, 'reached');
   assert.equal(companies.KEEP123.is_pinned, true);
   assert.equal(companies.NEW123.phone, '01234 222222');
+
+  response = await api(baseUrl, cookie, '/api/company/KEEP123');
+  assert.equal((await response.json()).company_name, 'Keep Me Security Ltd');
 
   const importSnapshots = fs.readdirSync(path.join(dataDir, 'snapshots'))
     .map(filename => JSON.parse(fs.readFileSync(path.join(dataDir, 'snapshots', filename), 'utf8')))

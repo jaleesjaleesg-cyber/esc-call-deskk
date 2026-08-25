@@ -58,6 +58,42 @@ const RUNTIME_COMPANY_FIELDS = new Set([
   'jalees_notes_updated_at',
   'jalees_notes_updated_by'
 ]);
+const COMPANY_INDEX_FIELDS = [
+  'crn',
+  'company_name',
+  'rank',
+  'tier',
+  'deterministic_score',
+  'confidence_score',
+  'prospect_status',
+  'has_full_dossier',
+  'is_physical_guarding',
+  'is_sia_acs_approved',
+  'sia_acs_registered_name',
+  'sia_acs_activities',
+  'primary_service_verdict',
+  'pipeline_list',
+  'contact_attempts',
+  'last_outcome',
+  'last_phone_used',
+  'last_dm_reached',
+  'last_caller',
+  'last_updated',
+  'pipeline_updated_at',
+  'notes_updated_at',
+  'is_pinned',
+  'pinned_at',
+  'pinned_by',
+  'pin_updated_at',
+  'phone',
+  'phone_numbers',
+  'email',
+  'website',
+  'website_status',
+  'registered_address',
+  'operational_address',
+  'decision_makers'
+];
 
 if (!ALLOW_INSECURE_DEV_PASSWORDS && (!process.env.ESC_AROOSA_PASSWORD || !process.env.ESC_JALEES_PASSWORDS)) {
   throw new Error('ESC_AROOSA_PASSWORD and ESC_JALEES_PASSWORDS must be set before the server starts.');
@@ -105,6 +141,9 @@ function saveJsonAtomic(filepath, data) {
   const tempFile = `${filepath}.tmp.${process.pid}.${Date.now()}`;
   fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
   fs.renameSync(tempFile, filepath);
+  if (path.resolve(filepath) === OUTPUT_JSON) {
+    companyDatabaseCache = { mtimeMs: -1, size: -1, companies: {} };
+  }
   persistentStore.queueFileWrite(filepath, data);
 }
 
@@ -126,8 +165,25 @@ function getDeletedCompanies() {
   return typeof data === 'object' && data !== null ? data : {};
 }
 
+let companyDatabaseCache = { mtimeMs: -1, size: -1, companies: {} };
+
+function loadCompanyDatabase() {
+  try {
+    const stats = fs.statSync(OUTPUT_JSON);
+    if (companyDatabaseCache.mtimeMs === stats.mtimeMs && companyDatabaseCache.size === stats.size) {
+      return companyDatabaseCache.companies;
+    }
+    const companies = loadJsonSafe(OUTPUT_JSON, {});
+    companyDatabaseCache = { mtimeMs: stats.mtimeMs, size: stats.size, companies };
+    return companies;
+  } catch (_) {
+    companyDatabaseCache = { mtimeMs: -1, size: -1, companies: {} };
+    return {};
+  }
+}
+
 function getVisibleCompanies() {
-  const companies = loadJsonSafe(OUTPUT_JSON, {});
+  const companies = loadCompanyDatabase();
   const deletedCrns = new Set(Object.keys(getDeletedCompanies()).map(crn => String(crn).trim().toUpperCase()));
   if (!deletedCrns.size) return companies;
   const visible = {};
@@ -135,6 +191,30 @@ function getVisibleCompanies() {
     if (!deletedCrns.has(String(crn).trim().toUpperCase())) visible[crn] = company;
   }
   return visible;
+}
+
+function getVisibleCompany(crn) {
+  const normalizedCrn = String(crn || '').trim().toUpperCase();
+  if (!normalizedCrn) return null;
+  const deletedCrns = new Set(Object.keys(getDeletedCompanies()).map(key => String(key).trim().toUpperCase()));
+  if (deletedCrns.has(normalizedCrn)) return null;
+  const companies = loadCompanyDatabase();
+  if (companies[normalizedCrn]) return companies[normalizedCrn];
+  const matchedKey = Object.keys(companies).find(key => String(key).trim().toUpperCase() === normalizedCrn);
+  return matchedKey ? companies[matchedKey] : null;
+}
+
+function getVisibleCompanyIndex() {
+  const index = {};
+  for (const [crn, company] of Object.entries(getVisibleCompanies())) {
+    const summary = { _summary_only: true };
+    for (const field of COMPANY_INDEX_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(company, field)) summary[field] = company[field];
+    }
+    summary.crn = summary.crn || crn;
+    index[crn] = summary;
+  }
+  return index;
 }
 
 async function flushPersistenceOrFail(res) {
@@ -795,6 +875,25 @@ app.get('/api/companies', (req, res) => {
     return res.json(getVisibleCompanies());
   }
   res.status(404).json({ error: 'Database not compiled' });
+});
+
+// Fast startup payload: list/search fields only. Full research remains in
+// MySQL-backed storage and is fetched for one selected company at a time.
+app.get('/api/company-index', (req, res) => {
+  if (!fs.existsSync(OUTPUT_JSON)) {
+    return res.status(404).json({ error: 'Database not compiled' });
+  }
+  res.json(getVisibleCompanyIndex());
+});
+
+app.get('/api/company/:crn', (req, res) => {
+  const crn = String(req.params.crn || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{4,12}$/.test(crn)) {
+    return res.status(400).json({ error: 'Invalid company registration number.' });
+  }
+  const company = getVisibleCompany(crn);
+  if (!company) return res.status(404).json({ error: 'Company not found.' });
+  res.json(company);
 });
 
 app.get('/api/state', (req, res) => {

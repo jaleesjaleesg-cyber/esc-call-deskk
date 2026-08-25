@@ -2092,6 +2092,8 @@
     let database = {};
     let currentCrn = "SC845085"; // Default Spotlight
     let currentCompany = null;
+    let companyLoadSequence = 0;
+    const companyDetailRequests = new Map();
     let selectedDmIndex = 0;
     let currentPipelineTab = "all_qualified"; // Default view: All Qualified
     let pendingResearchImportArtifact = null;
@@ -3446,6 +3448,7 @@
 
       if (window.COMPANIES_INTELLIGENCE && Object.keys(window.COMPANIES_INTELLIGENCE).length > 0) {
         database = window.COMPANIES_INTELLIGENCE;
+        companyDetailRequests.clear();
         onDatabaseReady(false);
       }
 
@@ -3464,11 +3467,12 @@
       }
 
       try {
-        const res = await fetch("/api/companies?t=" + Date.now());
+        const res = await fetch("/api/company-index?t=" + Date.now());
         if (res.ok) {
           const liveData = await res.json();
           if (liveData && Object.keys(liveData).length > 0) {
             database = liveData;
+            companyDetailRequests.clear();
             onDatabaseReady(true);
           }
         }
@@ -3478,6 +3482,7 @@
             const res2 = await fetch("companies_intelligence.json?t=" + Date.now());
             if (res2.ok) {
               database = await res2.json();
+              companyDetailRequests.clear();
               onDatabaseReady(false);
             }
           } catch (e2) {}
@@ -3548,11 +3553,12 @@
       isSyncing = true;
       updateSyncStatus("syncing", "Syncing...");
       try {
-        const res = await fetch("/api/companies?t=" + Date.now());
+        const res = await fetch("/api/company-index?t=" + Date.now());
         if (res.ok) {
           const newData = await res.json();
           if (newData && Object.keys(newData).length > 0) {
             database = newData;
+            companyDetailRequests.clear();
             lastSyncTimestamp = meta && meta.last_updated ? meta.last_updated : Date.now();
             const newCaseCount = meta && meta.case_count ? meta.case_count : Object.values(database).filter(c => c.has_full_dossier).length;
 
@@ -3611,18 +3617,53 @@
     // =========================================================================
     // UI RENDERING & CONTROLLER
     // =========================================================================
-    function loadCompany(crn, notify) {
+    async function fetchCompanyDetails(crn) {
+      const indexedCompany = database[crn];
+      if (!indexedCompany || !indexedCompany._summary_only) return indexedCompany;
+      if (companyDetailRequests.has(crn)) return companyDetailRequests.get(crn);
+
+      const request = fetch("/api/company/" + encodeURIComponent(crn) + "?t=" + Date.now(), { cache: "no-store" })
+        .then(async response => {
+          if (!response.ok) throw new Error("Company details failed: HTTP " + response.status);
+          const fullCompany = await response.json();
+          if (database[crn] !== indexedCompany) return database[crn];
+          database[crn] = { ...indexedCompany, ...fullCompany, _summary_only: false };
+          return database[crn];
+        })
+        .finally(() => companyDetailRequests.delete(crn));
+
+      companyDetailRequests.set(crn, request);
+      return request;
+    }
+
+    async function loadCompany(crn, notify) {
       if (!crn) return;
       crn = crn.trim().toUpperCase();
-      const comp = database[crn];
+      let comp = database[crn];
       if (!comp) {
         if (notify) showToast("Company " + crn + " not found in database.");
         return;
       }
 
+      const loadSequence = ++companyLoadSequence;
       const companyChanged = currentCrn !== crn;
       if (currentCompany && currentCrn && companyChanged) {
         flushActiveCompanyEdits();
+      }
+
+      if (comp._summary_only) {
+        document.getElementById("heroCompanyName").textContent = "Loading " + (comp.company_name || crn) + "…";
+        try {
+          comp = await fetchCompanyDetails(crn);
+        } catch (error) {
+          if (loadSequence === companyLoadSequence) {
+            showToast("Could not load " + (comp.company_name || crn) + ". Please retry.");
+          }
+          console.warn("[Company] Detail load failed:", error);
+          return;
+        }
+        if (loadSequence !== companyLoadSequence) return;
+        if (comp && comp._summary_only) return loadCompany(crn, notify);
       }
 
       if (companyChanged) loggerSelectionCrn = null;
@@ -5144,9 +5185,10 @@
 
           // Refresh database from server
           try {
-            const dbRes = await fetch("/api/companies?t=" + Date.now());
+            const dbRes = await fetch("/api/company-index?t=" + Date.now());
             if (dbRes.ok) {
               database = await dbRes.json();
+              companyDetailRequests.clear();
             }
           } catch (e) {}
 
