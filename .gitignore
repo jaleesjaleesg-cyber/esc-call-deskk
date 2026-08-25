@@ -9,6 +9,8 @@ __pycache__/
 *.py[cod]
 
 # Live mutable workspace data (stored in Hostinger MySQL in production)
+companies_intelligence.json
+metadata.json
 pipeline_state.json
 pipeline_state.json.bak
 call_history.json
@@ -20,5 +22,6 @@ snapshots/
 deploy/
 logs/
 companies_intelligence_data.js
+output/
 repomix-output.xml
 *.zip

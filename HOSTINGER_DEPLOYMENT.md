@@ -50,6 +50,8 @@ The server refuses to start when the two password variables are missing. With `E
 
 ## Persistence, backups and redeployment
 
-Production runtime state and snapshots are stored in Hostinger MySQL. The transition ZIP imports the repaired JSON state on the first database-backed startup; later GitHub deployments reload that state from MySQL.
+Production company research, metadata, runtime state and snapshots are stored in Hostinger MySQL. The transition ZIP imports the existing JSON files on the first database-backed startup; later GitHub deployments reload all business data from MySQL.
+
+GitHub deploys code only. After V9 research completes, Jalees imports the generated `research_import_*.json` through **Handler Suite → Import Research**. The server validates it, creates a recovery snapshot, updates company research without touching call state, and signals every open app to refresh.
 
 Keep using **Save to Host + Download** for independent recovery backups, especially before the one-time MySQL migration or a major application change. Runtime JSON files, snapshots, passwords and `.env` are excluded from Git. See `GITHUB_DEPLOYMENT.md` for the exact migration and push workflow.

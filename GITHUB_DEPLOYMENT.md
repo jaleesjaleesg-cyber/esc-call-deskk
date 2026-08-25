@@ -4,8 +4,8 @@ Hostinger deploys the selected GitHub branch automatically after every push. A d
 
 This project uses the following split:
 
-- GitHub (private repository): app code, tests, compiler, `companies_intelligence.json`, and `metadata.json`.
-- Hostinger MySQL: pipeline lists, attempts, notes, call history, workspace settings, deletion tombstones, and snapshots.
+- GitHub (private repository): application code, tests and compiler code only.
+- Hostinger MySQL: company research, database metadata, pipeline lists, attempts, notes, call history, workspace settings, deletion tombstones, and snapshots.
 - Ignored local files: passwords, `.env`, runtime JSON, snapshots, logs, dependencies, and deployment ZIPs.
 
 ## One-time migration before connecting GitHub
@@ -30,7 +30,15 @@ This project uses the following split:
    ```
 
 5. Sign in and confirm the expected list counts, notes, history, and snapshots.
-6. Only after that verification, connect the private GitHub repository to the existing Node website.
+6. Only after that verification, stop tracking the two legacy catalogue files while keeping the local copies:
+
+   ```bash
+   git rm --cached companies_intelligence.json metadata.json
+   git add .gitignore
+   git commit -m "Move live company data out of GitHub"
+   ```
+
+7. Push that commit, then connect the private GitHub repository to the existing Node website.
 
 If any database variable is missing or the database cannot be reached, the production app fails closed instead of silently accepting changes into disposable deployment files.
 
@@ -49,29 +57,33 @@ The GitHub verification workflow runs the Python and Node regression suites. Hos
 
 ## Add a completed batch of researched companies
 
-1. Finish the local research workflow.
-2. Run the compiler:
+1. From `final acs system/v9`, run the local research workflow:
 
    ```bash
-   python3 compile_prospect_database.py
+   python3 main.py workflow --count 100 --concurrency 100
    ```
 
-3. Confirm `companies_intelligence.json` and `metadata.json` changed.
-4. Run `npm run verify`.
-5. Commit and push only after the checks pass:
+   This compiles the completed research in memory and does not rewrite the Call Desk's local company or call-state files.
+2. The workflow compiles the cases and prints the generated import path, for example:
 
    ```bash
-   git add companies_intelligence.json metadata.json
-   git commit -m "Add researched company batch"
-   git push origin main
+   output/v9/imports/research_import_staged_batch_sic80100_100_new_....json
    ```
 
-The new catalogue is deployed from GitHub. Existing live pipeline status, notes, history, deletions, and snapshots are reloaded from MySQL and are not replaced by the push.
+3. Sign in to `calls.escsupportltd.co.uk` as Jalees.
+4. Open **Handler Suite → Import Research** and select that file.
+5. Review the New, Updates and Rejected counts, then click **Commit Import**.
+6. The server creates a pre-import recovery snapshot, writes accepted research records to the durable company database, and updates metadata. Existing call status, notes, pins, history and deletion tombstones are preserved; the recovery snapshot can restore the previous catalogue if needed.
+7. Every signed-in Call Desk refreshes automatically within about five seconds.
+
+Do not commit or push a researched company batch to GitHub.
 
 ## Never commit
 
 - Login or database passwords
 - `.env`
+- `companies_intelligence.json`
+- `metadata.json`
 - `pipeline_state.json`
 - `call_history.json`
 - `workspace_settings.json`

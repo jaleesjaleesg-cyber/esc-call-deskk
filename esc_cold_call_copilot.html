@@ -2094,6 +2094,8 @@
     let currentCompany = null;
     let selectedDmIndex = 0;
     let currentPipelineTab = "all_qualified"; // Default view: All Qualified
+    let pendingResearchImportArtifact = null;
+    let pendingResearchImportPreview = null;
 
     const PIPELINE_LISTS = {
       all_qualified: { id: "all_qualified", name: "All Qualified", icon: "⭐", label: "Qualified Target" },
@@ -2993,6 +2995,7 @@
         document.getElementById("handlerReportsTab").style.display = (targetTab === "reports" ? "block" : "none");
         document.getElementById("handlerAssignTab").style.display = (targetTab === "assign" ? "block" : "none");
         document.getElementById("handlerRetargetTab").style.display = (targetTab === "retarget" ? "block" : "none");
+        document.getElementById("handlerImportTab").style.display = (targetTab === "research-import" ? "block" : "none");
         document.getElementById("handlerRulesTab").style.display = (targetTab === "rules" ? "block" : "none");
 
         if (targetTab === "reports") renderHandlerReports();
@@ -3001,6 +3004,136 @@
         if (targetTab === "rules") applyWorkspaceSettings(workspaceSettings);
       });
     });
+
+    function resetResearchImportPreview(message) {
+      pendingResearchImportArtifact = null;
+      pendingResearchImportPreview = null;
+      document.getElementById("commitResearchImportBtn").disabled = true;
+      document.getElementById("researchImportPreviewWrap").style.display = "none";
+      document.getElementById("researchImportStatus").textContent = message || "Choose a V9 research import file.";
+    }
+
+    function renderResearchImportPreview(preview) {
+      const previewWrap = document.getElementById("researchImportPreviewWrap");
+      const summary = document.getElementById("researchImportSummary");
+      const acceptedBody = document.getElementById("researchImportAcceptedBody");
+      const rejectedWrap = document.getElementById("researchImportRejectedWrap");
+      const rejectedBody = document.getElementById("researchImportRejectedBody");
+
+      summary.innerHTML = [
+        [preview.submitted_count, "Submitted"],
+        [preview.accepted_count, "Accepted"],
+        [preview.new_count, "New"],
+        [preview.update_count, "Updates"],
+        [preview.rejected_count, "Rejected"]
+      ].map(item => "<div class=\"metric-card-box\"><span class=\"num\">" + escapeHtml(String(item[0])) + "</span><span class=\"lbl\">" + escapeHtml(item[1]) + "</span></div>").join("");
+
+      acceptedBody.innerHTML = (preview.accepted || []).map(item =>
+        "<tr><td><strong>" + escapeHtml(item.action === "new" ? "New" : "Update") + "</strong></td>" +
+        "<td><code>" + escapeHtml(item.crn) + "</code></td>" +
+        "<td>" + escapeHtml(item.company_name) + "</td>" +
+        "<td>" + escapeHtml(item.prospect_status) + "</td></tr>"
+      ).join("") || "<tr><td colspan=\"4\">No acceptable companies in this file.</td></tr>";
+
+      rejectedBody.innerHTML = (preview.rejected || []).map(item =>
+        "<tr><td><code>" + escapeHtml(item.crn) + "</code></td>" +
+        "<td>" + escapeHtml(item.company_name) + "</td>" +
+        "<td>" + escapeHtml(item.reason) + "</td></tr>"
+      ).join("");
+      rejectedWrap.style.display = preview.rejected_count ? "block" : "none";
+      previewWrap.style.display = "block";
+      document.getElementById("researchImportStatus").textContent =
+        "Batch " + preview.batch_id + " validated: " + preview.accepted_count + " accepted, " + preview.rejected_count + " rejected.";
+      document.getElementById("commitResearchImportBtn").disabled = preview.accepted_count < 1;
+    }
+
+    async function previewResearchImport() {
+      if (!currentUser || currentUser.username !== "jalees" || currentUser.role !== "handler") {
+        showToast("Only Jalees can import research.");
+        return;
+      }
+      const input = document.getElementById("researchImportFileInput");
+      const file = input.files && input.files[0];
+      if (!file) {
+        showToast("Choose the research_import JSON file first.");
+        return;
+      }
+      if (file.size > 30 * 1024 * 1024) {
+        showToast("Import file exceeds the 30 MB safety limit.");
+        return;
+      }
+
+      const button = document.getElementById("previewResearchImportBtn");
+      button.disabled = true;
+      document.getElementById("researchImportStatus").textContent = "Validating " + file.name + "...";
+      try {
+        const artifact = JSON.parse(await file.text());
+        const response = await fetch("/api/research-import/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ artifact })
+        });
+        const preview = await response.json();
+        if (!response.ok) throw new Error(preview.error || "Import validation failed.");
+        pendingResearchImportArtifact = artifact;
+        pendingResearchImportPreview = preview;
+        renderResearchImportPreview(preview);
+      } catch (error) {
+        resetResearchImportPreview("Validation failed: " + (error.message || "Invalid JSON file."));
+        showToast("Research import validation failed.");
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    async function commitResearchImport() {
+      if (!currentUser || currentUser.username !== "jalees" || currentUser.role !== "handler") {
+        showToast("Only Jalees can import research.");
+        return;
+      }
+      if (!pendingResearchImportArtifact || !pendingResearchImportPreview) {
+        showToast("Preview the import file first.");
+        return;
+      }
+      const acceptedCount = pendingResearchImportPreview.accepted_count || 0;
+      if (!confirm("Import " + acceptedCount + " researched companies into the live Call Desk? A recovery snapshot will be created first.")) return;
+
+      const button = document.getElementById("commitResearchImportBtn");
+      button.disabled = true;
+      document.getElementById("researchImportStatus").textContent = "Importing " + acceptedCount + " companies and saving a recovery snapshot...";
+      try {
+        const response = await fetch("/api/research-import/commit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ artifact: pendingResearchImportArtifact })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Research import failed.");
+
+        document.getElementById("researchImportStatus").textContent =
+          "Imported " + result.accepted_count + " companies from " + result.batch_id + ". Recovery snapshot: " + result.recovery_snapshot.name + ".";
+        pendingResearchImportArtifact = null;
+        pendingResearchImportPreview = null;
+        document.getElementById("researchImportFileInput").value = "";
+        await fetchUpdatedDatabase(result.metadata);
+        if (typeof fetchSnapshotsListCount === "function") fetchSnapshotsListCount();
+        renderHandlerReports();
+        renderAssignPreview();
+        renderRetargetList();
+        showToast("✅ " + result.accepted_count + " researched companies imported.");
+      } catch (error) {
+        document.getElementById("researchImportStatus").textContent = "Import failed: " + (error.message || "Server error.");
+        button.disabled = false;
+        showToast("Research import failed.");
+      }
+    }
+
+    document.getElementById("researchImportFileInput").addEventListener("change", event => {
+      const file = event.target.files && event.target.files[0];
+      resetResearchImportPreview(file ? "Selected " + file.name + ". Click Preview Import." : "Choose a V9 research import file.");
+    });
+    document.getElementById("previewResearchImportBtn").addEventListener("click", previewResearchImport);
+    document.getElementById("commitResearchImportBtn").addEventListener("click", commitResearchImport);
 
     document.getElementById("saveCallingRulesBtn").addEventListener("click", async () => {
       if (!currentUser || currentUser.role !== "handler") {

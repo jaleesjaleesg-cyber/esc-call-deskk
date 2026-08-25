@@ -322,7 +322,7 @@ function createSnapshot({
   const dateStr = new Date(nowTs).toISOString().replace('T', ' ').substring(0, 19);
   const cleanName = (name || 'snapshot').trim();
   const slug = cleanName.toLowerCase().replace(/[^a-z0-9_-]/g, '_').substring(0, 35);
-  const dStamp = new Date(nowTs).toISOString().replace(/[-:T]/g, '').substring(0, 15);
+  const dStamp = new Date(nowTs).toISOString().replace(/\D/g, '').substring(0, 14);
   const snapId = `snapshot_${dStamp}_${String(nowTs % 1000).padStart(3, '0')}_${slug}`;
   const filename = `${snapId}.json`;
   const filepath = path.join(SNAPSHOTS_DIR, filename);
@@ -1005,7 +1005,7 @@ app.post('/api/snapshots/upload', requireHandler, async (req, res) => {
   const dateStr = new Date(nowTs).toISOString().replace('T', ' ').substring(0, 19);
   const snapName = payload.name || `Imported Snapshot ${dateStr.substring(0, 16)}`;
   const slug = snapName.toLowerCase().replace(/[^a-z0-9_-]/g, '_').substring(0, 30);
-  const dStamp = new Date(nowTs).toISOString().replace(/[-:T]/g, '').substring(0, 15);
+  const dStamp = new Date(nowTs).toISOString().replace(/\D/g, '').substring(0, 14);
   const snapId = `snapshot_${dStamp}_${slug}`;
   const filename = `${snapId}.json`;
   const filepath = path.join(SNAPSHOTS_DIR, filename);
@@ -1119,7 +1119,6 @@ app.post('/api/research-import/commit', requireHandler, async (req, res) => {
   if (!await flushPersistenceOrFail(res)) return;
 
   res.json({
-    status: 'imported',
     ...publicResearchImportPreview(validation),
     status: 'imported',
     metadata: nextMetadata,

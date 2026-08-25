@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { PersistentStore } = require('./persistent_store');
 
 const PROJECT_DIR = __dirname;
 
@@ -189,6 +190,20 @@ test('Node server preserves routing revisions and tombstones deleted companies',
   assert.ok(importSnapshots[0].company_database.KEEP123);
   assert.equal(importSnapshots[0].company_database.NEW123, undefined);
 
+  response = await api(baseUrl, cookie, '/api/snapshots/restore', {
+    method: 'POST',
+    body: JSON.stringify({ id: importResult.recovery_snapshot.id })
+  });
+  assert.equal(response.status, 200);
+  const restoredImport = await response.json();
+  assert.equal(restoredImport.restored.company_database_restored, true);
+
+  response = await api(baseUrl, cookie, '/api/companies');
+  companies = await response.json();
+  assert.deepEqual(Object.keys(companies), ['KEEP123']);
+  assert.equal(companies.KEEP123.company_name, 'Keep Me Ltd');
+  assert.equal(companies.KEEP123.prospect_status, 'REGISTRY_PROSPECT');
+
   response = await api(baseUrl, cookie, '/api/state', {
     method: 'POST',
     body: JSON.stringify({
@@ -242,4 +257,22 @@ test('database-required mode fails closed when credentials are missing', async (
   fs.rmSync(dataDir, { recursive: true, force: true });
   assert.notEqual(code, 0);
   assert.match(output, /ESC_REQUIRE_DATABASE=1/);
+});
+
+test('database-required mode rejects a code-only release before the company database is seeded', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esc-node-unseeded-db-'));
+  const snapshotsDir = path.join(dataDir, 'snapshots');
+  fs.mkdirSync(snapshotsDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+
+  const store = new PersistentStore({ dataDir, snapshotsDir });
+  store.required = true;
+  store.pool = {
+    execute: async () => [[]]
+  };
+
+  await assert.rejects(
+    () => store.hydrateOrSeedState(),
+    /one-time data migration before enabling code-only GitHub deployments/
+  );
 });

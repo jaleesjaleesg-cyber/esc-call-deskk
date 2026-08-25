@@ -11,19 +11,27 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 DATA_PATH = BASE_DIR / "companies_intelligence.json"
+FULL_DATASET_AVAILABLE = DATA_PATH.exists()
 UI_PATH = BASE_DIR / "esc_cold_call_copilot.html"
 NODE_SERVER_PATH = BASE_DIR / "server.js"
 PACKAGE_PATH = BASE_DIR / "package.json"
+COMPILER_PATH = BASE_DIR / "compile_prospect_database.py"
 
 
 class CallingEngineRegressionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.companies = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+        cls.companies = (
+            json.loads(DATA_PATH.read_text(encoding="utf-8"))
+            if FULL_DATASET_AVAILABLE
+            else {}
+        )
         cls.ui = UI_PATH.read_text(encoding="utf-8")
         cls.node_server = NODE_SERVER_PATH.read_text(encoding="utf-8")
+        cls.compiler = COMPILER_PATH.read_text(encoding="utf-8")
         cls.package = json.loads(PACKAGE_PATH.read_text(encoding="utf-8"))
 
+    @unittest.skipUnless(FULL_DATASET_AVAILABLE, "production company data is intentionally excluded from Git")
     def test_roberts_ob_uses_outside_broadcast_context_not_labour_supply(self):
         company = self.companies["SC873583"]
         profile = company["call_profile"]
@@ -33,12 +41,14 @@ class CallingEngineRegressionTests(unittest.TestCase):
         self.assertNotIn("COP 119", company["phone_pitch"])
         self.assertNotIn("labour supply", company["phone_pitch"].lower())
 
+    @unittest.skipUnless(FULL_DATASET_AVAILABLE, "production company data is intentionally excluded from Git")
     def test_labour_supply_is_only_added_when_evidence_supports_it(self):
         for company in self.companies.values():
             profile = company["call_profile"]
             if profile["readiness"] == "tailored" and not profile["labour_supply_relevant"]:
                 self.assertNotIn("COP 119", company["phone_pitch"], company["company_name"])
 
+    @unittest.skipUnless(FULL_DATASET_AVAILABLE, "production company data is intentionally excluded from Git")
     def test_existing_acs_company_is_not_sold_initial_acs_again(self):
         advantage = next(
             company for company in self.companies.values()
@@ -49,6 +59,7 @@ class CallingEngineRegressionTests(unittest.TestCase):
         self.assertIn("annual ACS", profile["primary_offer"])
         self.assertNotIn("SIA ACS readiness and", profile["primary_offer"])
 
+    @unittest.skipUnless(FULL_DATASET_AVAILABLE, "production company data is intentionally excluded from Git")
     def test_disqualified_and_registry_only_records_cannot_receive_sales_scripts(self):
         for company in self.companies.values():
             readiness = company["call_profile"]["readiness"]
@@ -72,6 +83,7 @@ class CallingEngineRegressionTests(unittest.TestCase):
         self.assertNotIn("btn-whatsapp", self.ui)
         self.assertNotIn("heroWhatsAppBtn", self.ui)
 
+    @unittest.skipUnless(FULL_DATASET_AVAILABLE, "production company data is intentionally excluded from Git")
     def test_master_list_vs_qualified_separation(self):
         total = len(self.companies)
         qualified = [c for c in self.companies.values() if c.get("prospect_status") == "QUALIFIED"]
@@ -80,6 +92,7 @@ class CallingEngineRegressionTests(unittest.TestCase):
         self.assertGreaterEqual(len(qualified), 60)
         self.assertGreaterEqual(len(disqualified), 140)
 
+    @unittest.skipUnless(FULL_DATASET_AVAILABLE, "production company data is intentionally excluded from Git")
     def test_phone_numbers_labeled_with_purpose(self):
         spotlight = self.companies.get("SC845085")
         self.assertIsNotNone(spotlight)
@@ -88,6 +101,7 @@ class CallingEngineRegressionTests(unittest.TestCase):
         self.assertTrue(any("Callum" in p.get("purpose", "") or p.get("type") == "mobile" for p in phones))
         self.assertTrue(any(p.get("type") in ["corporate", "landline", "mobile"] for p in phones))
 
+    @unittest.skipUnless(FULL_DATASET_AVAILABLE, "production company data is intentionally excluded from Git")
     def test_social_profiles_extracted(self):
         spotlight = self.companies.get("SC845085")
         self.assertIn("facebook", spotlight.get("social_profiles", {}))
@@ -207,6 +221,16 @@ class CallingEngineRegressionTests(unittest.TestCase):
         self.assertIn('id="handlerReportsTab"', self.ui)
         self.assertIn('id="handlerAssignTab"', self.ui)
         self.assertIn('id="handlerRetargetTab"', self.ui)
+        self.assertIn('id="handlerImportTab"', self.ui)
+        self.assertIn('id="researchImportFileInput"', self.ui)
+        self.assertIn('id="previewResearchImportBtn"', self.ui)
+        self.assertIn('id="commitResearchImportBtn"', self.ui)
+        self.assertIn('/api/research-import/preview', self.ui)
+        self.assertIn('/api/research-import/commit', self.ui)
+        self.assertIn("app.post('/api/research-import/preview', requireHandler", self.node_server)
+        self.assertIn("app.post('/api/research-import/commit', requireHandler", self.node_server)
+        self.assertIn("def compile_database(quiet=False, write_files=True):", self.compiler)
+        self.assertIn("if write_files and not os.path.exists(PIPELINE_STATE_FILE):", self.compiler)
         self.assertIn('id="assignBatchSizeInput"', self.ui)
         self.assertIn('id="executeAssignNextNBtn"', self.ui)
         self.assertIn('id="moveSelectedToTodaysTargetsBtn"', self.ui)

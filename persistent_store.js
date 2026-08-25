@@ -100,6 +100,11 @@ class PersistentStore {
       } else if (fs.existsSync(filepath)) {
         const data = JSON.parse(fs.readFileSync(filepath, 'utf8'));
         await this.upsertState(stateKey, data);
+      } else if (this.required && stateKey === 'company_database') {
+        throw new Error(
+          'MySQL has no company_database state and companies_intelligence.json is missing. ' +
+          'Run the one-time data migration before enabling code-only GitHub deployments.'
+        );
       }
     }
   }
