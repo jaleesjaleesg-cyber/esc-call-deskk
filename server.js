@@ -383,6 +383,7 @@ function companyServiceRoute(company = {}) {
 }
 
 function companyMatchesAssignmentSource(company, source) {
+  if (company.is_sia_acs_approved) return false;
   if (source === 'qualified') return company.prospect_status === 'QUALIFIED';
   if (source === 'human_review') return company.prospect_status === 'NEEDS_REVIEW' && company.review_owner !== 'RESEARCH_RETRY';
   if (source === 'website') return companyHasWebsiteOpportunity(company);
@@ -393,12 +394,13 @@ function getAssignableCompanies(companies, pipeline, source, specificCrns = []) 
   const specific = new Set(specificCrns);
   return Object.values(companies)
     .filter(company => company && typeof company === 'object')
+    .filter(company => !company.is_sia_acs_approved)
     .filter(company => !specific.size || specific.has(String(company.crn || '').toUpperCase()))
     .filter(company => companyMatchesAssignmentSource(company, source))
     .filter(company => {
       const state = pipeline[company.crn] || {};
-      const operationalList = state.pipeline_list || company.pipeline_list || 'all_qualified';
-      if (['contacted', 'reached', 'unreachable', 'off_our_list', 'permanently_off_our_list'].includes(operationalList)) return false;
+      const operationalList = state.pipeline_list || (company.rank && company.rank <= 25 ? 'todays_targets' : (company.is_sia_acs_approved ? 'sia_approved_entries' : (company.pipeline_list || 'all_qualified')));
+      if (['todays_targets', 'sia_approved_entries', 'contacted', 'reached', 'unreachable', 'off_our_list', 'permanently_off_our_list'].includes(operationalList)) return false;
       return !state.assigned_username || !['assigned', 'in_progress'].includes(state.assignment_status);
     })
     .sort((a, b) => {
@@ -1202,7 +1204,7 @@ app.post('/api/assignments', requireHandler, async (req, res) => {
     const existing = pipeline[company.crn] && typeof pipeline[company.crn] === 'object' ? pipeline[company.crn] : {};
     pipeline[company.crn] = {
       ...existing,
-      pipeline_list: existing.pipeline_list || company.pipeline_list || 'all_qualified',
+      pipeline_list: 'todays_targets',
       assigned_to: caller.name,
       assigned_username: callerUsername,
       assignment_status: 'assigned',
@@ -1210,6 +1212,7 @@ app.post('/api/assignments', requireHandler, async (req, res) => {
       assigned_by: req.authUser.name,
       assignment_batch_id: batchId,
       assignment_note: String(body.note || '').trim().slice(0, 500),
+      pipeline_updated_at: assignedAt,
       assignment_updated_at: assignedAt,
       last_updated: Math.max(Number(existing.last_updated || 0), assignedAt),
     };
@@ -1221,10 +1224,10 @@ app.post('/api/assignments', requireHandler, async (req, res) => {
       assigned_to: caller.name,
       crn: company.crn,
       company_name: company.company_name || company.crn,
-      transition: existing.pipeline_list || company.pipeline_list || 'all_qualified',
-      outcome: `Assigned to ${caller.name}`,
+      transition: 'todays_targets',
+      outcome: `Assigned to ${caller.name} (Today's Targets)`,
       notes: String(body.note || '').trim(),
-      list: existing.pipeline_list || company.pipeline_list || 'all_qualified',
+      list: 'todays_targets',
       event_type: 'assignment',
       assignment_batch_id: batchId,
       attempt_number: Number(existing.contact_attempts || 0),

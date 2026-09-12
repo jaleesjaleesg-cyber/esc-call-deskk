@@ -140,7 +140,6 @@
       box-shadow: var(--shadow-lg);
     }
     .manager-menu-panel .btn { width: 100%; justify-content: flex-start; }
-    .secondary-pipeline-tab { display: none !important; }
 
     .btn {
       min-height: 34px;
@@ -191,21 +190,6 @@
       background: #312e81;
       box-shadow: 2px 2px 0 #818cf8;
       color: #ffffff;
-    }
-
-    .btn.toggle-script-btn {
-      background: #ffffff;
-      border-color: var(--border);
-      color: var(--forest);
-      font-weight: 800;
-    }
-    .btn.toggle-script-btn:hover {
-      border-color: var(--forest);
-    }
-    .btn.toggle-script-btn.active {
-      background: var(--forest);
-      color: var(--lime);
-      border-color: var(--forest);
     }
 
     .btn-sm { min-height: 28px; padding: 4px 8px; font-size: 10.5px; }
@@ -756,6 +740,13 @@
       opacity: 1;
       pointer-events: auto;
     }
+    #cloudResearchModalBackdrop.open {
+      display: grid !important;
+      opacity: 1 !important;
+      pointer-events: auto !important;
+      visibility: visible !important;
+      z-index: 99999 !important;
+    }
 
     .drawer-container {
       position: fixed;
@@ -1162,7 +1153,6 @@
       <div class="header-actions">
         <button class="btn blue" id="pipelineDrawerBtn" title="Open the full-screen list workspace (Shortcut: L)">📋 Pipeline Workspace</button>
         <button class="btn" id="cloudResearchBtn" style="background:#4f46e5; color:#ffffff; font-weight:850; border-color:#4338ca; box-shadow:0 2px 8px rgba(79,70,229,0.35);" title="Single-Step Cloud V9 Research (Auto-Import & Scale-to-Zero)">☁ Cloud Research (1-Step)</button>
-        <button class="btn toggle-script-btn" id="toggleScriptViewBtn" title="Toggle between Minimalist View and Full Script View (Shortcut: H)">📜 Show Full Script</button>
         <button class="btn handler-btn" id="handlerSuiteBtn" style="display:none;" title="Open assignment, research, reports, and controls">Manager Workspace</button>
         <details class="manager-menu" id="managerUtilitiesMenu" style="display:none;">
           <summary class="btn">Utilities ▾</summary>
@@ -1185,8 +1175,23 @@
         <button class="pipeline-tab" data-pipeline-tab="my_queue" role="tab" aria-selected="false">
           <span>☎ My Queue</span> <span class="p-count" id="countMyQueue">0</span>
         </button>
+        <button class="pipeline-tab" data-pipeline-tab="todays_targets" role="tab" aria-selected="false">
+          <span>🎯 Today's Targets</span> <span class="p-count" id="countTodaysTargets">0</span>
+        </button>
         <button class="pipeline-tab active" data-pipeline-tab="all_qualified" role="tab" aria-selected="true">
-          <span>✓ Qualified</span> <span class="p-count" id="countAllQualified">0</span>
+          <span>✓ Needs ACS</span> <span class="p-count" id="countAllQualified">0</span>
+        </button>
+        <button class="pipeline-tab" data-pipeline-tab="pinned" role="tab" aria-selected="false">
+          <span>📌 Pinned</span> <span class="p-count" id="countPinned">0</span>
+        </button>
+        <button class="pipeline-tab" data-pipeline-tab="contacted" role="tab" aria-selected="false">
+          <span>📞 Contacted</span> <span class="p-count" id="countContacted">0</span>
+        </button>
+        <button class="pipeline-tab" data-pipeline-tab="reached" role="tab" aria-selected="false">
+          <span>💬 Reached</span> <span class="p-count" id="countReached">0</span>
+        </button>
+        <button class="pipeline-tab" data-pipeline-tab="sia_approved_entries" role="tab" aria-selected="false">
+          <span>🎖️ SIA ACS Approved</span> <span class="p-count" id="countSiaApprovedEntries">0</span>
         </button>
         <button class="pipeline-tab" data-pipeline-tab="human_review" role="tab" aria-selected="false">
           <span>👤 Human Review</span> <span class="p-count" id="countHumanReview">0</span>
@@ -1194,37 +1199,22 @@
         <button class="pipeline-tab" data-pipeline-tab="website_opportunity" role="tab" aria-selected="false">
           <span>🌐 Website Leads</span> <span class="p-count" id="countWebsiteOpportunity">0</span>
         </button>
-        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="research_required" role="tab" aria-selected="false">
+        <button class="pipeline-tab" data-pipeline-tab="research_required" role="tab" aria-selected="false">
           <span>🔎 Research Required</span> <span class="p-count" id="countResearchRequired">0</span>
         </button>
-        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="research_disqualified" role="tab" aria-selected="false">
+        <button class="pipeline-tab" data-pipeline-tab="research_disqualified" role="tab" aria-selected="false">
           <span>🧭 Disqualified Review</span> <span class="p-count" id="countResearchDisqualified">0</span>
         </button>
-        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="pinned" role="tab" aria-selected="false">
-          <span>📌 Pinned</span> <span class="p-count" id="countPinned">0</span>
-        </button>
-        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="todays_targets" role="tab" aria-selected="false">
-          <span>🎯 Today's Targets</span> <span class="p-count" id="countTodaysTargets">0</span>
-        </button>
-        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="sia_approved_entries" role="tab" aria-selected="false">
-          <span>🎖️ SIA Approved Entries</span> <span class="p-count" id="countSiaApprovedEntries">0</span>
-        </button>
-        <button class="pipeline-tab" data-pipeline-tab="contacted" role="tab" aria-selected="false">
-          <span>↩ Follow-ups</span> <span class="p-count" id="countContacted">0</span>
-        </button>
-        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="reached" role="tab" aria-selected="false">
-          <span>💬 Reached</span> <span class="p-count" id="countReached">0</span>
-        </button>
-        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="unreachable" role="tab" aria-selected="false">
+        <button class="pipeline-tab" data-pipeline-tab="unreachable" role="tab" aria-selected="false">
           <span>📵 Unreachable</span> <span class="p-count" id="countUnreachable">0</span>
         </button>
-        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="off_our_list" role="tab" aria-selected="false">
+        <button class="pipeline-tab" data-pipeline-tab="off_our_list" role="tab" aria-selected="false">
           <span>🚫 Off Our List</span> <span class="p-count" id="countOffOurList">0</span>
         </button>
-        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="permanently_off_our_list" role="tab" aria-selected="false">
+        <button class="pipeline-tab" data-pipeline-tab="permanently_off_our_list" role="tab" aria-selected="false">
           <span>⛔ Permanently Off Our List</span> <span class="p-count" id="countPermanentlyOffOurList">0</span>
         </button>
-        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="master_list" role="tab" aria-selected="false">
+        <button class="pipeline-tab" data-pipeline-tab="master_list" role="tab" aria-selected="false">
           <span>🗄️ Master List</span> <span class="p-count" id="countMasterList">0</span>
         </button>
       </div>
@@ -1554,10 +1544,10 @@
               <select id="assignCallerSelect" class="quick-select" style="width:auto; min-width:140px; min-height:34px;"><option value="aroosa">Aroosa</option></select>
               <label for="assignSourceSelect" style="font-size:11px; font-weight:800; text-transform:uppercase;">Cohort:</label>
               <select id="assignSourceSelect" class="quick-select" style="width:auto; min-width:170px; min-height:34px;">
-                <option value="qualified">Qualified services</option>
-                <option value="human_review">Human review</option>
-                <option value="website">Website opportunities</option>
-                <option value="contactable">All contactable prospects</option>
+                <option value="qualified">Qualified services (Non-ACS)</option>
+                <option value="human_review">Human review (Non-ACS)</option>
+                <option value="website">Website opportunities (Non-ACS)</option>
+                <option value="contactable">All contactable prospects (Non-ACS)</option>
               </select>
               <label for="assignBatchSizeInput" style="font-size:11px; font-weight:800; text-transform:uppercase;">Batch Size (N):</label>
               <input type="number" id="assignBatchSizeInput" value="25" min="1" max="500" style="width:80px; min-height:34px; padding:4px 8px; border:1px solid var(--border); border-radius:3px; font-weight:750;" />
@@ -1697,15 +1687,17 @@
         <div class="pipeline-list-tabs" id="pipelineWorkspaceTabs">
           <button class="pipeline-list-tab" data-workspace-list="all">All companies</button>
           <button class="pipeline-list-tab" data-workspace-list="all_qualified">🎯 Needs ACS</button>
+          <button class="pipeline-list-tab" data-workspace-list="todays_targets">🎯 Today's targets</button>
+          <button class="pipeline-list-tab" data-workspace-list="pinned">📌 Pinned</button>
+          <button class="pipeline-list-tab" data-workspace-list="contacted">📞 Contacted</button>
+          <button class="pipeline-list-tab" data-workspace-list="reached">💬 Reached</button>
+          <button class="pipeline-list-tab" data-workspace-list="sia_approved_entries">🎖️ SIA ACS Approved</button>
           <button class="pipeline-list-tab" data-workspace-list="research_required">🔎 Research required</button>
           <button class="pipeline-list-tab" data-workspace-list="research_disqualified">🧭 Disqualified review</button>
-          <button class="pipeline-list-tab" data-workspace-list="pinned">📌 Pinned</button>
-          <button class="pipeline-list-tab" data-workspace-list="todays_targets">🎯 Today's targets</button>
-          <button class="pipeline-list-tab" data-workspace-list="contacted">📞 Contacted · not reached</button>
           <button class="pipeline-list-tab" data-workspace-list="unreachable">📵 Unreachable</button>
-          <button class="pipeline-list-tab" data-workspace-list="reached">💬 Reached</button>
           <button class="pipeline-list-tab" data-workspace-list="off_our_list">🚫 Off our list</button>
           <button class="pipeline-list-tab" data-workspace-list="permanently_off_our_list">⛔ Permanently off our list</button>
+          <button class="pipeline-list-tab" data-workspace-list="master_list">🗄️ Master List</button>
         </div>
         <div class="pipeline-table-controls">
           <input type="text" id="pipelineTableSearchInput" class="pipeline-table-search" placeholder="Filter companies by name, CRN, phone, notes, or outcome..." />
@@ -3735,10 +3727,13 @@
 
     function openCloudResearchCentre() {
       cloudResearchModal.classList.add("open");
-      loadCloudResearchRuns();
+      if (!activeCloudRunId) showConfigView();
+      loadCloudResearchRuns().catch(() => {});
       clearInterval(cloudResearchPollInterval);
       cloudResearchPollInterval = setInterval(() => {
-        if (cloudResearchModal.classList.contains("open")) loadCloudResearchRuns();
+        if (cloudResearchModal.classList.contains("open")) {
+          loadCloudResearchRuns().catch(() => {});
+        }
       }, 10000);
     }
 

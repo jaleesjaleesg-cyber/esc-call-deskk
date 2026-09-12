@@ -324,7 +324,9 @@ test('Node server preserves routing revisions and tombstones deleted companies',
   assert.equal(assignmentResult.assigned_count, 1);
   assert.equal(assignmentResult.pipeline_state.NEW123.assigned_username, 'aroosa');
   assert.equal(assignmentResult.pipeline_state.NEW123.assignment_status, 'assigned');
+  assert.equal(assignmentResult.pipeline_state.NEW123.pipeline_list, 'todays_targets');
   assert.equal(assignmentResult.call_history[0].event_type, 'assignment');
+  assert.equal(assignmentResult.call_history[0].transition, 'todays_targets');
   assert.ok(assignmentResult.recovery_snapshot.id);
 
   response = await api(baseUrl, cookie, '/api/handler/analytics');

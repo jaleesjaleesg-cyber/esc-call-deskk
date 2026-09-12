@@ -67,7 +67,7 @@ class CallingEngineRegressionTests(unittest.TestCase):
                 self.assertEqual(readiness, "do_not_call")
                 self.assertTrue(company["phone_pitch"].startswith("DO NOT CALL"))
     def test_ui_minimalist_structure_and_clutter_toggle(self):
-        self.assertIn('id="toggleScriptViewBtn"', self.ui)
+        self.assertNotIn('id="toggleScriptViewBtn"', self.ui)
         self.assertIn('id="pipelineDrawerBtn"', self.ui)
         self.assertIn('id="heroPhoneBadgesGrid"', self.ui)
         self.assertIn('id="directorsListContainer"', self.ui)
@@ -76,8 +76,14 @@ class CallingEngineRegressionTests(unittest.TestCase):
         self.assertIn('id="battleEvidenceList"', self.ui)
         self.assertIn('id="logResponseMoveListSelect"', self.ui)
         self.assertIn('data-pipeline-tab="all_qualified"', self.ui)
+        self.assertIn('data-pipeline-tab="todays_targets"', self.ui)
+        self.assertIn('data-pipeline-tab="pinned"', self.ui)
+        self.assertIn('data-pipeline-tab="contacted"', self.ui)
+        self.assertIn('data-pipeline-tab="reached"', self.ui)
+        self.assertIn('data-pipeline-tab="sia_approved_entries"', self.ui)
         self.assertIn('data-pipeline-tab="master_list"', self.ui)
         self.assertIn('data-pipeline-tab="off_our_list"', self.ui)
+        self.assertNotIn('.secondary-pipeline-tab { display: none !important; }', self.ui)
 
     def test_no_whatsapp_buttons_in_ui(self):
         self.assertNotIn("btn-whatsapp", self.ui)
