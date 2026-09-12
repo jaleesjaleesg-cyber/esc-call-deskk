@@ -29,11 +29,16 @@ DB_PORT=3306
 DB_USER=<Hostinger database username>
 DB_PASSWORD=<Hostinger database password>
 DB_NAME=<Hostinger database name>
+ESC_RESEARCH_CONTROL_URL=<HTTPS URL output by the Azure V9 deployment>
+ESC_RESEARCH_BRIDGE_SECRET=<same high-entropy request-only bridge secret held by Azure>
+ESC_RESEARCH_BRIDGE_TIMEOUT_MS=15000
 ```
 
 `ESC_JALEES_PASSWORDS` may contain comma-separated passwords if more than one handler password is intentionally required. Do not set `PORT`. The server honours a platform-provided value and otherwise uses Hostinger's required port `3000`.
 
 The server refuses to start when the two password variables are missing. With `ESC_REQUIRE_DATABASE=1`, it also refuses to start unless the Hostinger MySQL connection succeeds. Session cookies are HTTP-only, SameSite Strict and Secure by default.
+
+The Hostinger app must not receive `ESC_APPROVAL_EMAIL`, `ESC_OTP_PEPPER`, Gemini keys, Companies House credentials, the Azure storage connection string, or the Azure Email connection string. The bridge secret can request and inspect jobs, but the Azure API intentionally has no bridge-authenticated start/approve route. Only the one-time code on the Azure approval page can enqueue work.
 
 ## Existing subdomain warning
 
@@ -47,6 +52,7 @@ The server refuses to start when the two password variables are missing. With `E
 4. Sign out, sign in as Jalees and confirm Handler Suite controls are visible.
 5. Confirm `https://calls.escsupportltd.co.uk/pipeline_state.json` returns 404 and `/api/state` returns 401 while signed out.
 6. Create a test snapshot and download it before live calling begins.
+7. Open **Research Centre**, submit a one-company request, and confirm no job starts until the Azure-hosted OTP page is approved. Do not approve this paid pilot until its parameters and provider quotas have been checked.
 
 ## Persistence, backups and redeployment
 
@@ -54,4 +60,4 @@ Production company research, metadata, runtime state and snapshots are stored in
 
 GitHub deploys code only. After V9 research completes, Jalees imports the generated `research_import_*.json` through **Handler Suite → Import Research**. The server validates it, creates a recovery snapshot, updates company research without touching call state, and signals every open app to refresh.
 
-Keep using **Save to Host + Download** for independent recovery backups, especially before the one-time MySQL migration or a major application change. Runtime JSON files, snapshots, passwords and `.env` are excluded from Git. See `GITHUB_DEPLOYMENT.md` for the exact migration and push workflow.
+Keep using **Save to Host + Download** for independent recovery backups, especially before the one-time MySQL migration or a major application change. Runtime JSON files, snapshots, passwords and `.env` are excluded from Git. See `GITHUB_DEPLOYMENT.md` for the exact migration and push workflow, and `../final acs system/v9/cloud/AZURE_DEPLOYMENT.md` for the V9 service.

@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check persistent_store.js && node --check test_node_server.js",
+    "check": "node --check server.js && node --check persistent_store.js && node --check cloud_research_bridge.js && node --check phone_search.js && node --check test_node_server.js",
     "test:python": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_calling_engine.py",
     "test:node": "node --test test_node_server.js",
     "test": "npm run test:python && npm run test:node",

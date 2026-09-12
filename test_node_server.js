@@ -3,10 +3,98 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const http = require('node:http');
 const { spawn } = require('node:child_process');
 const { PersistentStore } = require('./persistent_store');
+const phoneSearch = require('./phone_search');
+const { CloudResearchBridge, signRequest } = require('./cloud_research_bridge');
 
 const PROJECT_DIR = __dirname;
+
+test('phone search resolves UK callback-number formatting variants and mobile numbers', () => {
+  const company = {
+    crn: 'TEST001',
+    company_name: 'Alpha Security Ltd',
+    phone: '01234 567 890',
+    phone_numbers: [{ number: '+44 (0) 7700 900123', purpose: 'Director mobile', type: 'mobile' }],
+    decision_makers: [{ name: 'Example Director', phone: '020 7946 0999', mobile: '07890 123456' }]
+  };
+
+  assert.equal(phoneSearch.normalizeUkPhone('+44 1234 567890'), '01234567890');
+  assert.equal(phoneSearch.normalizeUkPhone('0044 1234 567890'), '01234567890');
+  assert.equal(phoneSearch.normalizeUkPhone('+44 (0) 7700 900123'), '07700900123');
+  assert.equal(phoneSearch.matchingPhone(company, '+44 1234 567890'), '01234 567 890');
+  assert.equal(phoneSearch.matchingPhone(company, '7700900123'), '+44 (0) 7700 900123');
+  assert.equal(phoneSearch.matchingPhone(company, '7946 0999'), '020 7946 0999');
+  assert.equal(phoneSearch.matchingPhone(company, '07890123456'), '07890 123456');
+  assert.equal(phoneSearch.companyMatchesPhone(company, '555555'), false);
+  assert.equal(phoneSearch.companyMatchesPhone(company, ''), false);
+
+  // Mobile number identification
+  assert.equal(phoneSearch.isUkMobile('07700 900123'), true);
+  assert.equal(phoneSearch.isUkMobile('+44 7890 123456'), true);
+  assert.equal(phoneSearch.isUkMobile('020 7946 0999'), false);
+  assert.equal(phoneSearch.isUkMobile('01234 567890'), false);
+
+  // Structured search by phone
+  const searchResults = phoneSearch.searchCompaniesByPhone({ TEST001: company }, '07890123456');
+  assert.equal(searchResults.length, 1);
+  assert.equal(searchResults[0].company.crn, 'TEST001');
+  assert.equal(searchResults[0].match.isMobile, true);
+  assert.equal(searchResults[0].match.dmName, 'Example Director');
+});
+
+test('cloud bridge signs requests, approves runs, and keeps its shared secret server-side', async t => {
+  const secret = 'offline-bridge-secret';
+  const requests = [];
+  const upstream = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      const body = Buffer.concat(chunks);
+      const expected = signRequest(
+        secret,
+        req.method,
+        req.url,
+        req.headers['x-esc-timestamp'],
+        req.headers['x-esc-nonce'],
+        body
+      );
+      requests.push({ req, body, expected });
+      res.writeHead(req.headers['x-esc-signature'] === expected ? 202 : 401, { 'Content-Type': 'application/json' });
+      if (req.url.includes('/approve/')) {
+        res.end(JSON.stringify({ status: 'QUEUED', run_id: 'run-offline-test' }));
+      } else {
+        res.end(JSON.stringify({ status: 'PENDING_APPROVAL', run_id: 'run-offline-test' }));
+      }
+    });
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  t.after(() => upstream.close());
+
+  const address = upstream.address();
+  const bridge = new CloudResearchBridge({
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    secret,
+    allowInsecureHttp: true
+  });
+  const result = await bridge.requestRun('Aroosa', {
+    mode: 'workflow', count: 1, concurrency: 1, sic: '80100', location: ''
+  });
+  await bridge.listRuns(7);
+  const approveResult = await bridge.approveRun('run-offline-test', '12345678');
+
+  assert.equal(result.status, 'PENDING_APPROVAL');
+  assert.equal(approveResult.status, 'QUEUED');
+  assert.equal(requests.length, 3);
+  assert.equal(requests[0].req.headers['x-esc-signature'], requests[0].expected);
+  assert.equal(requests[1].req.url, '/v1/runs?limit=7');
+  assert.equal(requests[2].req.url, '/v1/approve/run-offline-test');
+  assert.equal(requests[2].req.headers['x-esc-signature'], requests[2].expected);
+  assert.equal(requests[0].body.toString().includes(secret), false);
+  assert.equal(JSON.stringify(result).includes(secret), false);
+  assert.equal(new CloudResearchBridge({ baseUrl: 'http://example.com', secret }).isConfigured(), false);
+});
 
 function writeJson(dir, filename, value) {
   fs.writeFileSync(path.join(dir, filename), JSON.stringify(value, null, 2), 'utf8');
@@ -201,6 +289,8 @@ test('Node server preserves routing revisions and tombstones deleted companies',
   assert.equal(companies.KEEP123.pipeline_list, 'reached');
   assert.equal(companies.KEEP123.is_pinned, true);
   assert.equal(companies.NEW123.phone, '01234 222222');
+  assert.equal(companies.NEW123.research_batch_id, 'node-test-batch');
+  assert.equal(companies.NEW123.research_imported_by, 'Jalees');
 
   response = await api(baseUrl, cookie, '/api/company/KEEP123');
   assert.equal((await response.json()).company_name, 'Keep Me Security Ltd');
@@ -211,6 +301,37 @@ test('Node server preserves routing revisions and tombstones deleted companies',
   assert.equal(importSnapshots.length, 1);
   assert.ok(importSnapshots[0].company_database.KEEP123);
   assert.equal(importSnapshots[0].company_database.NEW123, undefined);
+
+  response = await api(baseUrl, aroosaCookie, '/api/assignments', {
+    method: 'POST', body: JSON.stringify({ caller_username: 'aroosa', source: 'qualified', count: 2, preview_only: true })
+  });
+  assert.equal(response.status, 403);
+
+  response = await api(baseUrl, cookie, '/api/assignments', {
+    method: 'POST', body: JSON.stringify({ caller_username: 'aroosa', source: 'qualified', count: 2, preview_only: true })
+  });
+  assert.equal(response.status, 200);
+  const assignmentPreview = await response.json();
+  assert.equal(assignmentPreview.status, 'preview');
+  assert.equal(assignmentPreview.eligible_count, 1);
+  assert.equal(assignmentPreview.companies[0].service_route, 'DUAL');
+
+  response = await api(baseUrl, cookie, '/api/assignments', {
+    method: 'POST', body: JSON.stringify({ caller_username: 'aroosa', source: 'qualified', count: 2, note: 'Morning ACS campaign' })
+  });
+  assert.equal(response.status, 200);
+  const assignmentResult = await response.json();
+  assert.equal(assignmentResult.assigned_count, 1);
+  assert.equal(assignmentResult.pipeline_state.NEW123.assigned_username, 'aroosa');
+  assert.equal(assignmentResult.pipeline_state.NEW123.assignment_status, 'assigned');
+  assert.equal(assignmentResult.call_history[0].event_type, 'assignment');
+  assert.ok(assignmentResult.recovery_snapshot.id);
+
+  response = await api(baseUrl, cookie, '/api/handler/analytics');
+  assert.equal(response.status, 200);
+  const analytics = (await response.json()).analytics;
+  assert.equal(analytics.callers.find(item => item.username === 'aroosa').assigned, 1);
+  assert.equal(analytics.inventory.active_assignments, 1);
 
   response = await api(baseUrl, cookie, '/api/snapshots/restore', {
     method: 'POST',
@@ -233,7 +354,9 @@ test('Node server preserves routing revisions and tombstones deleted companies',
         MERGE001: {
           pipeline_list: 'reached', contact_attempts: 1, pipeline_updated_at: 300,
           call_notes: 'older note', notes_updated_at: 100,
-          is_pinned: true, pin_updated_at: 250, last_updated: 300
+          is_pinned: true, pin_updated_at: 250,
+          assigned_to: 'Aroosa', assigned_username: 'aroosa', assignment_status: 'assigned',
+          assignment_batch_id: 'batch-new', assignment_updated_at: 350, last_updated: 350
         }
       },
       call_history: []
@@ -263,9 +386,41 @@ test('Node server preserves routing revisions and tombstones deleted companies',
   assert.equal(merged.call_notes, 'newer note');
   assert.equal(merged.last_outcome, 'Email the info');
   assert.equal(merged.is_pinned, true);
+  assert.equal(merged.assigned_username, 'aroosa');
+  assert.equal(merged.assignment_batch_id, 'batch-new');
+
+  response = await api(baseUrl, aroosaCookie, '/api/pipeline/bulk', {
+    method: 'POST',
+    body: JSON.stringify({ crns: ['KEEP123'], target_list: 'todays_targets' })
+  });
+  assert.equal(response.status, 403);
+
+  response = await api(baseUrl, cookie, '/api/pipeline/bulk', {
+    method: 'POST',
+    body: JSON.stringify({ crns: ['KEEP123'], target_list: 'all_qualified' })
+  });
+  assert.equal(response.status, 400);
+
+  response = await api(baseUrl, cookie, '/api/pipeline/bulk', {
+    method: 'POST',
+    body: JSON.stringify({ crns: ['KEEP123', 'MISSING999'], target_list: 'todays_targets' })
+  });
+  assert.equal(response.status, 200);
+  const bulkResult = await response.json();
+  assert.equal(bulkResult.moved_count, 1);
+  assert.deepEqual(bulkResult.rejected_crns, ['MISSING999']);
+  assert.equal(bulkResult.pipeline_state.KEEP123.pipeline_list, 'todays_targets');
+  assert.equal(bulkResult.call_history[0].event_type, 'bulk_move');
+  const bulkSnapshot = JSON.parse(fs.readFileSync(
+    path.join(dataDir, 'snapshots', bulkResult.recovery_snapshot.filename), 'utf8'
+  ));
+  assert.equal(bulkSnapshot.type, 'pre_bulk_move');
+  assert.notEqual(bulkSnapshot.pipeline_state.KEEP123 && bulkSnapshot.pipeline_state.KEEP123.pipeline_list, 'todays_targets');
 
   response = await api(baseUrl, cookie, '/api/status');
-  assert.equal((await response.json()).persistence.mode, 'json-files');
+  const status = await response.json();
+  assert.equal(status.persistence.mode, 'json-files');
+  assert.ok(Number(status.workspace_revision) > 0);
 });
 
 test('database-required mode fails closed when credentials are missing', async () => {

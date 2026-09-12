@@ -123,6 +123,25 @@
       flex-wrap: wrap;
     }
 
+    .manager-menu { position: relative; }
+    .manager-menu summary { list-style: none; }
+    .manager-menu summary::-webkit-details-marker { display: none; }
+    .manager-menu-panel {
+      position: absolute;
+      z-index: 80;
+      top: calc(100% + 7px);
+      right: 0;
+      width: 230px;
+      padding: 8px;
+      display: grid;
+      gap: 6px;
+      background: #fff;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-lg);
+    }
+    .manager-menu-panel .btn { width: 100%; justify-content: flex-start; }
+    .secondary-pipeline-tab { display: none !important; }
+
     .btn {
       min-height: 34px;
       padding: 6px 12px;
@@ -834,6 +853,20 @@
       margin-bottom: 12px;
       flex-wrap: wrap;
     }
+    .pipeline-filter-grid {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(145px, 1fr));
+      gap: 7px;
+      margin: 0 0 10px;
+      padding: 9px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: #fbfaf7;
+    }
+    .pipeline-filter-grid .quick-select { min-width: 0; width: 100%; min-height: 32px; font-size: 11px; padding: 3px 6px; }
+    .pipeline-bulk-bar { display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin:0 0 10px; }
+    .pipeline-bulk-count { font-size:11.5px; font-weight:800; color:var(--text-muted); min-width:94px; }
+    .pipeline-bulk-bar #pipelineBulkTargetSelect { width:auto; flex:0 1 230px; }
     .pipeline-table-search {
       flex: 1;
       min-width: 220px;
@@ -1101,12 +1134,17 @@
     @media (max-width: 960px) {
       .minimal-workspace-grid { grid-template-columns: 1fr; }
       .search-panel { grid-template-columns: 1fr 1fr; }
+      #cloudResearchLayout { grid-template-columns: 1fr !important; }
     }
 
     @media (max-width: 640px) {
       .app-container { padding: 10px 12px 30px; gap: 10px; }
       .search-panel { grid-template-columns: 1fr; }
       .pipeline-tabs { overflow-x: auto; flex-wrap: nowrap; width: 100%; padding-bottom: 4px; }
+      .pipeline-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .header-actions { width: 100%; }
+      .header-actions > .btn, .header-actions > details, .header-actions > .user-pill-badge { flex: 1 1 auto; }
+      .manager-menu-panel { position: fixed; left: 12px; right: 12px; top: 108px; width: auto; }
     }
   </style>
 </head>
@@ -1122,50 +1160,71 @@
         </div>
       </div>
       <div class="header-actions">
-        <button class="btn" id="saveSnapshotBtn" style="background:#047857; color:#ffffff; font-weight:800; border-color:#065f46;" title="Save point-in-time snapshot to disk">💾 Save Snapshot</button>
-        <button class="btn" id="directDownloadBackupBtn" title="Download backup JSON directly to your device (works offline)">📥 Export Backup</button>
-        <button class="btn" id="manageSnapshotsBtn" title="Manage, restore, or export snapshots">📸 Snapshots <span id="snapshotCountBadge" class="p-count" style="display:none; font-size:10px; margin-left:4px;">0</span></button>
         <button class="btn blue" id="pipelineDrawerBtn" title="Open the full-screen list workspace (Shortcut: L)">📋 Pipeline Workspace</button>
+        <button class="btn" id="cloudResearchBtn" title="Request and monitor cloud V9 research">☁ Research Centre</button>
         <button class="btn toggle-script-btn" id="toggleScriptViewBtn" title="Toggle between Minimalist View and Full Script View (Shortcut: H)">📜 Show Full Script</button>
-        <button class="btn handler-btn" id="handlerSuiteBtn" style="display:none;" title="Open Handler Performance Reports & Workflows">📊 Handler Suite</button>
+        <button class="btn handler-btn" id="handlerSuiteBtn" style="display:none;" title="Open assignment, research, reports, and controls">Manager Workspace</button>
+        <details class="manager-menu" id="managerUtilitiesMenu" style="display:none;">
+          <summary class="btn">Utilities ▾</summary>
+          <div class="manager-menu-panel">
+            <button class="btn" id="saveSnapshotBtn" style="background:#047857; color:#ffffff; font-weight:800; border-color:#065f46;" title="Save point-in-time snapshot to disk">💾 Save Snapshot</button>
+            <button class="btn" id="directDownloadBackupBtn" title="Download backup JSON directly to your device">📥 Export Backup</button>
+            <button class="btn" id="manageSnapshotsBtn" title="Manage, restore, or export snapshots">📸 Snapshots <span id="snapshotCountBadge" class="p-count" style="display:none; font-size:10px; margin-left:4px;">0</span></button>
+            <button class="btn" id="syncNowBtn" title="Sync database from intelligence pipeline">Sync Research <span id="syncCasesCount">...</span></button>
+          </div>
+        </details>
         <div id="userBadgeDisplay" class="user-pill-badge">👤 Aroosa</div>
         <button class="btn" id="historyModalBtn">History <span id="callCountBadge">0</span></button>
         <button class="btn" id="logoutBtn" title="Log out from session">🚪 Logout</button>
-        <button class="btn" id="syncNowBtn" title="Sync database from intelligence pipeline">Sync <span id="syncCasesCount">...</span></button>
       </div>
     </header>
 
     <!-- Pipeline List Navigation Tabs -->
     <nav class="pipeline-nav-bar" aria-label="Pipeline Lists">
       <div class="pipeline-tabs" role="tablist">
-        <button class="pipeline-tab active" data-pipeline-tab="all_qualified" role="tab" aria-selected="true">
-          <span>⭐ All Qualified</span> <span class="p-count" id="countAllQualified">0</span>
+        <button class="pipeline-tab" data-pipeline-tab="my_queue" role="tab" aria-selected="false">
+          <span>☎ My Queue</span> <span class="p-count" id="countMyQueue">0</span>
         </button>
-        <button class="pipeline-tab" data-pipeline-tab="pinned" role="tab" aria-selected="false">
+        <button class="pipeline-tab active" data-pipeline-tab="all_qualified" role="tab" aria-selected="true">
+          <span>✓ Qualified</span> <span class="p-count" id="countAllQualified">0</span>
+        </button>
+        <button class="pipeline-tab" data-pipeline-tab="human_review" role="tab" aria-selected="false">
+          <span>👤 Human Review</span> <span class="p-count" id="countHumanReview">0</span>
+        </button>
+        <button class="pipeline-tab" data-pipeline-tab="website_opportunity" role="tab" aria-selected="false">
+          <span>🌐 Website Leads</span> <span class="p-count" id="countWebsiteOpportunity">0</span>
+        </button>
+        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="research_required" role="tab" aria-selected="false">
+          <span>🔎 Research Required</span> <span class="p-count" id="countResearchRequired">0</span>
+        </button>
+        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="research_disqualified" role="tab" aria-selected="false">
+          <span>🧭 Disqualified Review</span> <span class="p-count" id="countResearchDisqualified">0</span>
+        </button>
+        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="pinned" role="tab" aria-selected="false">
           <span>📌 Pinned</span> <span class="p-count" id="countPinned">0</span>
         </button>
-        <button class="pipeline-tab" data-pipeline-tab="todays_targets" role="tab" aria-selected="false">
+        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="todays_targets" role="tab" aria-selected="false">
           <span>🎯 Today's Targets</span> <span class="p-count" id="countTodaysTargets">0</span>
         </button>
-        <button class="pipeline-tab" data-pipeline-tab="sia_approved_entries" role="tab" aria-selected="false">
+        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="sia_approved_entries" role="tab" aria-selected="false">
           <span>🎖️ SIA Approved Entries</span> <span class="p-count" id="countSiaApprovedEntries">0</span>
         </button>
         <button class="pipeline-tab" data-pipeline-tab="contacted" role="tab" aria-selected="false">
-          <span>📞 Contacted · Not Reached</span> <span class="p-count" id="countContacted">0</span>
+          <span>↩ Follow-ups</span> <span class="p-count" id="countContacted">0</span>
         </button>
-        <button class="pipeline-tab" data-pipeline-tab="reached" role="tab" aria-selected="false">
+        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="reached" role="tab" aria-selected="false">
           <span>💬 Reached</span> <span class="p-count" id="countReached">0</span>
         </button>
-        <button class="pipeline-tab" data-pipeline-tab="unreachable" role="tab" aria-selected="false">
+        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="unreachable" role="tab" aria-selected="false">
           <span>📵 Unreachable</span> <span class="p-count" id="countUnreachable">0</span>
         </button>
-        <button class="pipeline-tab" data-pipeline-tab="off_our_list" role="tab" aria-selected="false">
+        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="off_our_list" role="tab" aria-selected="false">
           <span>🚫 Off Our List</span> <span class="p-count" id="countOffOurList">0</span>
         </button>
-        <button class="pipeline-tab" data-pipeline-tab="permanently_off_our_list" role="tab" aria-selected="false">
+        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="permanently_off_our_list" role="tab" aria-selected="false">
           <span>⛔ Permanently Off Our List</span> <span class="p-count" id="countPermanentlyOffOurList">0</span>
         </button>
-        <button class="pipeline-tab" data-pipeline-tab="master_list" role="tab" aria-selected="false">
+        <button class="pipeline-tab secondary-pipeline-tab" data-pipeline-tab="master_list" role="tab" aria-selected="false">
           <span>🗄️ Master List</span> <span class="p-count" id="countMasterList">0</span>
         </button>
       </div>
@@ -1175,7 +1234,7 @@
     <section class="search-panel">
       <div class="search-input-wrap">
         <span class="search-icon">⌕</span>
-        <input type="text" id="companySearchInput" class="search-input" placeholder="Search company name, CRN, decision maker, or city" autocomplete="off" />
+        <input type="text" id="companySearchInput" class="search-input" placeholder="Search company, CRN, phone number, decision maker, or city" autocomplete="off" inputmode="search" />
         <button class="search-clear-btn" id="searchClearBtn">×</button>
         <div class="search-results-dropdown" id="searchResultsDropdown"></div>
       </div>
@@ -1201,6 +1260,7 @@
             <span class="tag status-qual" id="heroStatusTag">QUALIFIED</span>
             <span class="tag" id="heroSiaTag" style="background:#059669; color:#ffffff; font-weight:800; display:none;">🎖️ SIA ACS APPROVED</span>
             <span class="tag pipeline-badge pipeline-all_qualified" id="heroPipelineTag">⭐ Qualified Target</span>
+            <span class="tag" id="heroAssignmentTag" style="display:none; background:#e0e7ff; color:#312e81;">Assigned</span>
             <span class="tag attempts-badge" id="heroAttemptsTag" style="display:none">Attempts: 1</span>
             <span class="tag service" id="heroServiceTag">Event Guarding</span>
             <span class="tag crn" id="heroCrnTag">CRN: SC845085</span>
@@ -1297,7 +1357,18 @@
           <div class="intel-section">
             <span class="intel-label">Target Compliance Focus</span>
             <p class="intel-body" id="battleTargetPkg" style="color:#08281d; font-weight:750;">
-              Turnkey SIA ACS Accreditation & COP 119 Labour Provision
+              SIA ACS Readiness & BS 10119 Labour Provision
+            </p>
+          </div>
+
+          <!-- Website Opportunity & Digital Angle -->
+          <div class="intel-section" id="intelWebsiteOppSection" style="display:none; background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:10px 12px; margin-bottom:12px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+              <span class="intel-label" style="color:#92400e; font-weight:800; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">🌐 Website Opportunity & Digital Hook</span>
+              <span id="intelWebsiteOppBadge" style="font-size:10px; font-weight:700; background:#fef3c7; color:#b45309; padding:2px 6px; border-radius:4px; border:1px solid #fcd34d;">No Website</span>
+            </div>
+            <p class="intel-body" id="intelWebsiteOppBody" style="color:#78350f; font-size:12px; line-height:1.45; margin:0; font-weight:600;">
+              No verified corporate website detected. Pitch angle: Commercial security buyers require a verifiable website to validate guard licenses.
             </p>
           </div>
 
@@ -1332,7 +1403,6 @@
           <label for="logResponseMoveListSelect" class="field-label">Call Result / Move to List</label>
           <select id="logResponseMoveListSelect" class="quick-select" style="min-height:38px; padding:6px 10px; font-size:12px; font-weight:750; width:100%;">
             <option value="" selected>Choose what happened on this call…</option>
-            <option value="all_qualified">⭐ All Qualified (Target Pool)</option>
             <option value="todays_targets">🎯 Today's Targets (Daily Batch)</option>
             <option value="sia_approved_entries">🎖️ SIA Approved Entries (Existing ACS)</option>
             <option value="contacted">📞 Log unsuccessful attempt (+1)</option>
@@ -1395,14 +1465,14 @@
   <div class="modal-backdrop" id="handlerSuiteModalBackdrop">
     <div class="modal-card" style="width:min(1100px, 96vw); max-height:90vh;">
       <div class="modal-header">
-        <h3>👑 Handler Suite — Performance Reports & Workflows</h3>
+        <h3>Manager Workspace — Workload, Research & Reports</h3>
         <button class="btn btn-sm" id="closeHandlerSuiteBtn">Close</button>
       </div>
 
       <!-- Handler Navigation Tabs -->
       <div class="handler-tabs-bar">
-        <button class="handler-nav-tab active" data-handler-tab="reports">📊 Daily Activity Reports</button>
-        <button class="handler-nav-tab" data-handler-tab="assign">⚡ Assign Next N Companies</button>
+        <button class="handler-nav-tab active" data-handler-tab="reports">📊 Team & Pipeline</button>
+        <button class="handler-nav-tab" data-handler-tab="assign">☎ Assign Work</button>
         <button class="handler-nav-tab" data-handler-tab="retarget">🎯 Re-target Leads</button>
         <button class="handler-nav-tab" data-handler-tab="research-import">📦 Import Research</button>
         <button class="handler-nav-tab" data-handler-tab="rules">⚙️ Calling Rules</button>
@@ -1447,6 +1517,12 @@
               <span class="lbl">Off Our List (Disq)</span>
             </div>
           </div>
+          <div id="managerInventorySummary" class="metrics-summary-grid" style="margin-top:10px;"></div>
+          <h4 style="font-size:12px; font-weight:850; text-transform:uppercase; margin:16px 0 8px; color:var(--text-muted);">Caller workload</h4>
+          <table class="history-table">
+            <thead><tr><th>Caller</th><th>Assigned</th><th>Open</th><th>Attempted</th><th>Reached</th><th>Conversion</th></tr></thead>
+            <tbody id="managerCallerAnalyticsBody"><tr><td colspan="6">Loading workload…</td></tr></tbody>
+          </table>
 
           <!-- Activity Audit Log Table -->
           <h4 style="font-size:12px; font-weight:850; text-transform:uppercase; margin-bottom:8px; color:var(--text-muted);">Activity Audit Log</h4>
@@ -1469,26 +1545,38 @@
         <!-- Tab 2: Assign Next N Companies Workflow -->
         <div id="handlerAssignTab" class="handler-tab-pane" style="display:none;">
           <div style="padding:16px; background:#ffffff; border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:14px;">
-            <h4 style="font-size:13px; font-weight:850; margin-bottom:6px;">Assign Next N Qualified Targets to Today's Targets</h4>
+            <h4 style="font-size:13px; font-weight:850; margin-bottom:6px;">Create a named caller work batch</h4>
             <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
-              Select the batch size to pull the highest-priority companies from <strong>All Qualified</strong> into <strong>Today's Targets</strong> for Aroosa to dial.
+              Assignment is independent from call stage, so imported research can never mix up who owns the next action.
             </p>
             <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <label for="assignCallerSelect" style="font-size:11px; font-weight:800; text-transform:uppercase;">Caller:</label>
+              <select id="assignCallerSelect" class="quick-select" style="width:auto; min-width:140px; min-height:34px;"><option value="aroosa">Aroosa</option></select>
+              <label for="assignSourceSelect" style="font-size:11px; font-weight:800; text-transform:uppercase;">Cohort:</label>
+              <select id="assignSourceSelect" class="quick-select" style="width:auto; min-width:170px; min-height:34px;">
+                <option value="qualified">Qualified services</option>
+                <option value="human_review">Human review</option>
+                <option value="website">Website opportunities</option>
+                <option value="contactable">All contactable prospects</option>
+              </select>
               <label for="assignBatchSizeInput" style="font-size:11px; font-weight:800; text-transform:uppercase;">Batch Size (N):</label>
-              <input type="number" id="assignBatchSizeInput" value="25" min="1" max="100" style="width:80px; min-height:34px; padding:4px 8px; border:1px solid var(--border); border-radius:3px; font-weight:750;" />
-              <button class="btn primary" id="executeAssignNextNBtn">⚡ Assign Next N to Today's Targets</button>
+              <input type="number" id="assignBatchSizeInput" value="25" min="1" max="500" style="width:80px; min-height:34px; padding:4px 8px; border:1px solid var(--border); border-radius:3px; font-weight:750;" />
+              <button class="btn" id="previewAssignmentBtn">Preview</button>
+              <button class="btn primary" id="executeAssignNextNBtn">Assign batch</button>
             </div>
+            <input id="assignBatchNoteInput" class="search-input" style="margin-top:10px; min-height:34px;" placeholder="Optional manager instruction for this batch" />
+            <p id="assignmentPreviewStatus" style="font-size:11px; color:var(--text-muted); margin-top:8px;">Choose a cohort and preview the next companies.</p>
           </div>
 
-          <h4 style="font-size:12px; font-weight:850; text-transform:uppercase; margin-bottom:8px; color:var(--text-muted);">Preview: Next Available Qualified Companies</h4>
+          <h4 style="font-size:12px; font-weight:850; text-transform:uppercase; margin-bottom:8px; color:var(--text-muted);">Server-validated assignment preview</h4>
           <table class="history-table">
             <thead>
               <tr>
                 <th>Rank</th>
                 <th>Company Name / CRN</th>
                 <th>Score</th>
-                <th>Primary Phone</th>
-                <th>Service Verdict</th>
+                <th>Research Status</th>
+                <th>Offer Route</th>
               </tr>
             </thead>
             <tbody id="assignPreviewTableBody"></tbody>
@@ -1587,6 +1675,9 @@
       <div class="drawer-body">
         <div class="pipeline-list-tabs" id="pipelineWorkspaceTabs">
           <button class="pipeline-list-tab" data-workspace-list="all">All companies</button>
+          <button class="pipeline-list-tab" data-workspace-list="all_qualified">🎯 Needs ACS</button>
+          <button class="pipeline-list-tab" data-workspace-list="research_required">🔎 Research required</button>
+          <button class="pipeline-list-tab" data-workspace-list="research_disqualified">🧭 Disqualified review</button>
           <button class="pipeline-list-tab" data-workspace-list="pinned">📌 Pinned</button>
           <button class="pipeline-list-tab" data-workspace-list="todays_targets">🎯 Today's targets</button>
           <button class="pipeline-list-tab" data-workspace-list="contacted">📞 Contacted · not reached</button>
@@ -1601,7 +1692,9 @@
             <select id="pipelineDrawerListFilter" class="quick-select" style="min-height:34px; padding:4px 8px; font-size:11.5px; min-width:180px;">
               <option value="all">All Lists (Overview)</option>
               <option value="pinned">📌 Pinned</option>
-              <option value="all_qualified" selected>⭐ All Qualified</option>
+              <option value="all_qualified" selected>🎯 Needs ACS</option>
+              <option value="research_required">🔎 Research Required</option>
+              <option value="research_disqualified">🧭 Disqualified Review</option>
               <option value="todays_targets">🎯 Today's Targets</option>
               <option value="sia_approved_entries">🎖️ SIA Approved Entries</option>
               <option value="contacted">📞 Contacted · Not Reached</option>
@@ -1622,9 +1715,64 @@
             <button class="btn btn-sm blue" id="refreshPipelineTableBtn">Refresh</button>
           </div>
         </div>
+        <div class="pipeline-filter-grid" aria-label="Pipeline filters">
+          <select id="pipelineContactFilter" class="quick-select" title="Filter by direct contact availability">
+            <option value="all">Contact: any</option>
+            <option value="phone_or_email">Contact: phone or email</option>
+            <option value="phone">Contact: phone available</option>
+            <option value="email">Contact: email available</option>
+            <option value="phone_and_email">Contact: phone and email</option>
+            <option value="none">Contact: no phone or email</option>
+          </select>
+          <select id="pipelineWebsiteFilter" class="quick-select">
+            <option value="all">Website: any</option>
+            <option value="available">Website: available</option>
+            <option value="missing">Website: missing</option>
+          </select>
+          <select id="pipelineQualificationFilter" class="quick-select">
+            <option value="all">Qualification: any</option>
+            <option value="needs_acs">Qualification: needs ACS</option>
+            <option value="acs_approved">Qualification: already ACS</option>
+            <option value="research_required">Qualification: research required</option>
+            <option value="disqualified">Qualification: disqualified</option>
+          </select>
+          <select id="pipelineDossierFilter" class="quick-select">
+            <option value="all">Dossier: any</option>
+            <option value="full">Dossier: full research</option>
+            <option value="missing">Dossier: missing</option>
+          </select>
+          <select id="pipelineActivityFilter" class="quick-select">
+            <option value="all">Activity: any</option>
+            <option value="not_contacted">Activity: not contacted</option>
+            <option value="attempted">Activity: attempted</option>
+            <option value="has_notes">Activity: notes available</option>
+          </select>
+          <select id="pipelinePinFilter" class="quick-select">
+            <option value="all">Pin: any</option>
+            <option value="pinned">Pin: pinned</option>
+            <option value="not_pinned">Pin: not pinned</option>
+          </select>
+        </div>
+        <div class="pipeline-bulk-bar" id="pipelineBulkBar">
+          <button class="btn btn-sm" id="resetPipelineFiltersBtn">Reset filters</button>
+          <button class="btn btn-sm blue" id="exportPipelineCsvBtn">📥 Export selected / filtered CSV</button>
+          <span class="pipeline-bulk-count" id="pipelineBulkCount">0 selected</span>
+          <select id="pipelineBulkTargetSelect" class="quick-select" style="min-height:32px; min-width:190px; font-size:11px;">
+            <option value="">Bulk move selected to…</option>
+            <option value="todays_targets">Today's Targets</option>
+            <option value="sia_approved_entries">SIA Approved Entries</option>
+            <option value="reached">Reached</option>
+            <option value="unreachable">Unreachable</option>
+            <option value="off_our_list">Off Our List</option>
+            <option value="permanently_off_our_list">Permanently Off Our List</option>
+            <option value="master_list">Master List</option>
+          </select>
+          <button class="btn btn-sm primary" id="applyPipelineBulkMoveBtn">Apply bulk move</button>
+        </div>
         <div class="pipeline-table-scroll"><table class="history-table">
           <thead>
             <tr>
+              <th style="width:36px;"><input type="checkbox" id="pipelineSelectPageCheckbox" title="Select this page" /></th>
               <th>Company / CRN</th>
               <th>Phone Numbers</th>
               <th>List / Attempts</th>
@@ -1640,6 +1788,44 @@
         <div class="pipeline-pagination">
           <span id="pipelineResultsSummary">0 companies</span>
           <div style="display:flex; gap:6px; align-items:center;"><button class="btn btn-sm" id="pipelinePrevPageBtn">← Previous</button><span id="pipelinePageSummary">Page 1</span><button class="btn btn-sm" id="pipelineNextPageBtn">Next →</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="pipelineExportModalBackdrop">
+    <div class="modal-card" style="width:min(760px, 96vw); max-height:92vh;">
+      <div class="modal-header">
+        <h3>Export pipeline companies</h3>
+        <button class="btn btn-sm" id="closePipelineExportModalBtn">Close</button>
+      </div>
+      <div class="modal-body">
+        <p id="pipelineExportScopeSummary" style="font-size:12px; color:var(--text-muted); margin-bottom:12px;"></p>
+        <h4 style="font-size:12px; font-weight:850; text-transform:uppercase; margin-bottom:8px;">Choose CSV information</h4>
+        <div style="display:grid; grid-template-columns:repeat(3,minmax(150px,1fr)); gap:8px; margin-bottom:14px;">
+          <label><input type="checkbox" class="pipeline-export-field" value="crn" checked /> CRN</label>
+          <label><input type="checkbox" class="pipeline-export-field" value="company_name" checked /> Company name</label>
+          <label><input type="checkbox" class="pipeline-export-field" value="research_status" checked /> Research status</label>
+          <label><input type="checkbox" class="pipeline-export-field" value="acs_status" checked /> ACS status</label>
+          <label><input type="checkbox" class="pipeline-export-field" value="pipeline_list" checked /> Pipeline list</label>
+          <label><input type="checkbox" class="pipeline-export-field" value="phones" checked /> Phone numbers</label>
+          <label><input type="checkbox" class="pipeline-export-field" value="email" checked /> Email</label>
+          <label><input type="checkbox" class="pipeline-export-field" value="website" checked /> Website</label>
+          <label><input type="checkbox" class="pipeline-export-field" value="address" /> Address</label>
+          <label><input type="checkbox" class="pipeline-export-field" value="dossier_status" /> Dossier status</label>
+          <label><input type="checkbox" class="pipeline-export-field" value="attempts" /> Attempts</label>
+          <label><input type="checkbox" class="pipeline-export-field" value="last_outcome" /> Last outcome</label>
+          <label><input type="checkbox" class="pipeline-export-field" value="caller_notes" /> Caller notes</label>
+          <label><input type="checkbox" class="pipeline-export-field" value="jalees_notes" /> Jalees notes</label>
+        </div>
+        <label style="display:flex; gap:8px; align-items:flex-start; padding:11px; background:#f4f0e6; border-radius:var(--radius-sm); margin-bottom:12px;">
+          <input type="checkbox" id="pipelineExportIncludeDossiers" />
+          <span><strong>Include individual research dossiers</strong><br><small>The download becomes a ZIP containing the CSV and one Markdown dossier per researched company.</small></span>
+        </label>
+        <div id="pipelineExportStatus" style="min-height:22px; font-size:11.5px; font-weight:750; color:var(--text-muted);"></div>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
+          <button class="btn" id="cancelPipelineExportBtn">Cancel</button>
+          <button class="btn primary" id="runPipelineExportBtn">Download export</button>
         </div>
       </div>
     </div>
@@ -1857,6 +2043,129 @@
   </div>
 
   <!-- Password Login Modal -->
+  <!-- Cloud Autonomous Research Pipeline Modal -->
+  <div class="modal-backdrop" id="cloudResearchModalBackdrop">
+    <div class="modal-card" style="width:min(1060px, 96vw); max-height:92vh;">
+      <div class="modal-header" style="background:linear-gradient(135deg, #1e1b4b, #312e81); color:white; border-bottom:1px solid #4338ca; border-radius:var(--radius-md) var(--radius-md) 0 0; padding:16px 20px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:20px;">⚡</span>
+          <div>
+            <h3 style="margin:0; font-size:16px; font-weight:850; letter-spacing:0.02em; color:white;">Cloud Research Engine</h3>
+            <p style="margin:2px 0 0; font-size:11px; color:#c7d2fe;">Azure Scale-to-Zero Serverless Pipeline · End-to-End One-Step Execution</p>
+          </div>
+        </div>
+        <button class="btn btn-sm" id="closeCloudResearchBtn" style="background:rgba(255,255,255,0.15); color:white; border:0;">✕</button>
+      </div>
+      <div class="modal-body" style="padding:20px;">
+        <div style="display:grid; grid-template-columns:minmax(320px, 1fr) minmax(360px, 1.1fr); gap:20px;" id="cloudResearchLayout">
+          <!-- Left Column: Pipeline Flow (Config -> OTP -> Minimalist Progress) -->
+          <section id="cloudPipelineControlCard" style="border:1px solid #e0e7ff; border-radius:var(--radius-sm); padding:18px; background:#fafafa; display:flex; flex-direction:column; gap:14px;">
+            
+            <!-- Step 1: Configuration Form -->
+            <div id="cloudConfigSection">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h4 style="margin:0; font-size:14px; font-weight:800; color:#1e1b4b;">1. Configure Research</h4>
+                <span class="tag" style="background:#e0e7ff; color:#3730a3; font-size:10px; font-weight:700;">Scale-to-Zero (10m Cooldown)</span>
+              </div>
+              <p style="font-size:11.5px; color:#64748b; margin:0 0 12px; line-height:1.45;">One-click end-to-end pipeline: executes research on Azure cloud, validates dossiers, and automatically updates the database.</p>
+              
+              <label class="field-label" for="cloudResearchMode">Pipeline Mode</label>
+              <select id="cloudResearchMode" class="quick-select" style="width:100%; margin-bottom:10px;">
+                <option value="workflow">UK Industry Harvest (SIC Code)</option>
+                <option value="crns">Target Specific CRNs</option>
+              </select>
+
+              <div id="cloudWorkflowFields">
+                <label class="field-label" for="cloudResearchCount">Company Volume (Count)</label>
+                <div style="display:flex; gap:6px; margin-bottom:6px;">
+                  <button type="button" class="btn btn-sm cloud-preset-btn" data-count="10" style="flex:1;">10</button>
+                  <button type="button" class="btn btn-sm cloud-preset-btn" data-count="20" style="flex:1; background:#e0e7ff; color:#3730a3; font-weight:800;">20</button>
+                  <button type="button" class="btn btn-sm cloud-preset-btn" data-count="50" style="flex:1;">50</button>
+                  <button type="button" class="btn btn-sm cloud-preset-btn" data-count="100" style="flex:1;">100</button>
+                </div>
+                <input id="cloudResearchCount" class="quick-select" style="width:100%; margin-bottom:10px;" type="number" min="1" max="100" value="20" />
+
+                <label class="field-label" for="cloudResearchLocation">Geographic Target</label>
+                <input id="cloudResearchLocation" class="quick-select" style="width:100%; margin-bottom:10px;" placeholder="All UK (default), Scotland, London…" maxlength="80" />
+              </div>
+
+              <div id="cloudCrnFields" style="display:none; margin-bottom:10px;">
+                <label class="field-label" for="cloudResearchCrns">Company Registration Numbers</label>
+                <textarea id="cloudResearchCrns" class="call-notes-area" style="min-height:90px;" placeholder="SC123456&#10;01234567"></textarea>
+              </div>
+
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+                <div>
+                  <label class="field-label" for="cloudResearchSic">SIC Code</label>
+                  <input id="cloudResearchSic" class="quick-select" style="width:100%;" value="80100" inputmode="numeric" maxlength="5" />
+                </div>
+                <div>
+                  <label class="field-label" for="cloudResearchConcurrency">Concurrency</label>
+                  <input id="cloudResearchConcurrency" class="quick-select" style="width:100%;" type="number" min="1" max="100" value="20" />
+                </div>
+              </div>
+
+              <button class="btn primary" id="requestCloudResearchBtn" style="width:100%; height:46px; font-size:13px; font-weight:800; border-radius:8px; background:linear-gradient(135deg, #4f46e5, #6366f1); border:0; box-shadow:0 4px 12px rgba(79,70,229,0.3); color:white; cursor:pointer;">
+                ⚡ Launch Research Pipeline
+              </button>
+              <div id="cloudResearchRequestStatus" style="font-size:11.5px; font-weight:700; line-height:1.4; min-height:18px; margin-top:8px; color:#475569;"></div>
+            </div>
+
+            <!-- Step 2: OTP Verification Card (Hidden initially) -->
+            <div id="cloudOtpSection" style="display:none; background:#ffffff; border:2px solid #6366f1; border-radius:var(--radius-sm); padding:16px; box-shadow:0 4px 16px rgba(99,102,241,0.12);">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                <span style="font-size:18px;">🔐</span>
+                <h4 style="margin:0; font-size:14px; font-weight:800; color:#1e1b4b;">2. Authorization Code Required</h4>
+              </div>
+              <p style="font-size:12px; color:#475569; margin:0 0 10px; line-height:1.45;">
+                An 8-digit verification code has been dispatched to <strong style="color:#1e1b4b;">jaleesjaleesg@gmail.com</strong>. Enter it below to start execution:
+              </p>
+              <input id="cloudResearchOtpInput" maxlength="8" inputmode="numeric" autocomplete="one-time-code" placeholder="••••••••" style="width:100%; height:48px; font-size:22px; letter-spacing:0.3em; text-align:center; font-weight:800; border-radius:8px; border:2px solid #6366f1; background:#f8fafc; margin-bottom:10px; box-sizing:border-box;" />
+              <div style="display:flex; gap:8px;">
+                <button class="btn primary" id="confirmCloudResearchOtpBtn" style="flex:2; height:42px; font-weight:800; background:#059669; border:0; color:white;">✓ Confirm & Execute Pipeline</button>
+                <button class="btn btn-sm" id="cancelCloudOtpBtn" style="flex:1; height:42px;">Cancel</button>
+              </div>
+              <div id="cloudOtpStatusMsg" style="font-size:11.5px; font-weight:700; margin-top:8px; min-height:18px; color:#b42318;"></div>
+            </div>
+
+            <!-- Step 3: Minimalist Active Progress Card (Hidden initially, shows JUST percentage) -->
+            <div id="cloudActiveProgressSection" style="display:none; background:#ffffff; border:1px solid #c7d2fe; border-radius:var(--radius-sm); padding:20px; text-align:center; box-shadow:0 6px 20px rgba(0,0,0,0.04);">
+              <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.08em; font-weight:800; color:#6366f1; margin-bottom:6px;">Pipeline In Progress</div>
+              <div id="cloudActivePercent" style="font-size:52px; font-weight:900; color:#1e1b4b; line-height:1; margin-bottom:12px;">0%</div>
+              <div style="height:12px; background:#e2e8f0; border-radius:999px; overflow:hidden; margin-bottom:10px;">
+                <div id="cloudActiveProgressBar" style="height:100%; width:0%; background:linear-gradient(90deg, #6366f1, #10b981); border-radius:999px; transition:width 0.4s ease;"></div>
+              </div>
+              <div id="cloudActiveStatusText" style="font-size:12.5px; font-weight:700; color:#475569;">Executing cloud pipeline…</div>
+              <div style="font-size:11px; color:#94a3b8; margin-top:6px;">Auto-commit enabled · Database updates automatically upon completion</div>
+            </div>
+
+            <!-- Step 4: Completion State -->
+            <div id="cloudCompleteSection" style="display:none; background:#ecfdf5; border:1px solid #6ee7b7; border-radius:var(--radius-sm); padding:16px; text-align:center;">
+              <div style="font-size:24px; margin-bottom:4px;">🎉</div>
+              <h4 style="margin:0 0 4px; color:#065f46; font-size:15px; font-weight:800;">Pipeline Complete — 100%</h4>
+              <p id="cloudCompleteMessage" style="font-size:12px; color:#047857; margin:0 0 12px; line-height:1.45;">All records validated and committed to the database in one single step.</p>
+              <button class="btn primary" id="viewNewCompaniesBtn" style="background:#059669; border:0; color:white; font-weight:800; padding:10px 18px; border-radius:8px;">View Newly Added Companies →</button>
+            </div>
+
+          </section>
+
+          <!-- Right Column: Recent Pipeline Runs & Logs -->
+          <section style="display:flex; flex-direction:column;">
+            <div style="display:flex; justify-content:space-between; gap:8px; align-items:center; margin-bottom:12px;">
+              <div>
+                <h4 style="margin:0; font-size:14px; font-weight:800;">Execution History</h4>
+                <p id="cloudResearchConnectionStatus" style="font-size:11px; color:#64748b; margin:2px 0 0;">Checking Azure connection…</p>
+              </div>
+              <button class="btn btn-sm" id="refreshCloudResearchBtn">Refresh</button>
+            </div>
+            <div id="cloudResearchRuns" style="display:flex; flex-direction:column; gap:10px; max-height:480px; overflow-y:auto; padding-right:4px;"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
   <div class="modal-backdrop" id="loginModalBackdrop">
     <div class="login-modal-card">
       <div style="text-align:center; margin-bottom:6px;">
@@ -1969,6 +2278,7 @@
   <!-- Toast Notification -->
   <div class="toast" id="toastElement">Notification</div>
 
+  <script src="/phone_search.js"></script>
   <script>
     // =========================================================================
     // AUTHENTICATION & ROLE ENGINE
@@ -2031,6 +2341,28 @@
       }
       if (handlerBtn) {
         handlerBtn.style.display = (currentUser && currentUser.role === "handler") ? "inline-flex" : "none";
+      }
+      const managerMenu = document.getElementById("managerUtilitiesMenu");
+      if (managerMenu) managerMenu.style.display = (currentUser && currentUser.role === "handler") ? "block" : "none";
+      if (currentUser && currentUser.role === "caller" && currentPipelineTab === "all_qualified") {
+        currentPipelineTab = "my_queue";
+        document.querySelectorAll("[data-pipeline-tab]").forEach(tab => {
+          const active = tab.dataset.pipelineTab === currentPipelineTab;
+          tab.classList.toggle("active", active);
+          tab.setAttribute("aria-selected", active ? "true" : "false");
+        });
+      }
+      const bulkTarget = document.getElementById("pipelineBulkTargetSelect");
+      const bulkButton = document.getElementById("applyPipelineBulkMoveBtn");
+      const canBulkMove = Boolean(currentUser && currentUser.role === "handler");
+      if (bulkTarget) {
+        bulkTarget.disabled = !canBulkMove;
+        bulkTarget.style.display = canBulkMove ? "inline-block" : "none";
+      }
+      if (bulkButton) {
+        bulkButton.disabled = !canBulkMove;
+        bulkButton.style.display = canBulkMove ? "inline-flex" : "none";
+        bulkButton.title = canBulkMove ? "Move selected companies with a recovery snapshot" : "Only Jalees can bulk-move companies";
       }
       document.querySelectorAll(".jalees-note-edit-control").forEach(control => {
         control.style.display = (currentUser && currentUser.role === "handler") ? "inline-flex" : "none";
@@ -2098,9 +2430,17 @@
     let currentPipelineTab = "all_qualified"; // Default view: All Qualified
     let pendingResearchImportArtifact = null;
     let pendingResearchImportPreview = null;
+    let pendingCloudResearchRunId = null;
+    let currentAssignmentPreview = null;
+    let cloudResearchPollInterval = null;
 
     const PIPELINE_LISTS = {
-      all_qualified: { id: "all_qualified", name: "All Qualified", icon: "⭐", label: "Qualified Target" },
+      my_queue: { id: "my_queue", name: "My Assigned Queue", icon: "☎", label: "My Queue", virtual: true },
+      all_qualified: { id: "all_qualified", name: "Qualified Services", icon: "✓", label: "Qualified", virtual: true },
+      human_review: { id: "human_review", name: "Human Review", icon: "👤", label: "Human Review", virtual: true },
+      website_opportunity: { id: "website_opportunity", name: "Website Opportunities", icon: "🌐", label: "Website Lead", virtual: true },
+      research_required: { id: "research_required", name: "Research Required", icon: "🔎", label: "Research Required", virtual: true },
+      research_disqualified: { id: "research_disqualified", name: "Disqualified Review", icon: "🧭", label: "Disqualified Review", virtual: true },
       pinned: { id: "pinned", name: "Pinned Companies", icon: "📌", label: "Pinned" },
       todays_targets: { id: "todays_targets", name: "Today's Targets", icon: "🎯", label: "Today's Target" },
       sia_approved_entries: { id: "sia_approved_entries", name: "SIA Approved Entries", icon: "🎖️", label: "SIA ACS Approved" },
@@ -2119,12 +2459,21 @@
     let serverSaveInFlight = false;
     let localChangeCounter = 0;
     const PENDING_SYNC_KEY = "esc_pending_server_sync_v1";
+    const pendingPipelineCrns = new Set();
+    const pendingHistoryRecords = new Map();
+    let fullStateSyncRequired = false;
+    let queuedSnapshotRequest = null;
     let workspaceSettings = { unreachable_after_attempts: 2 };
     let activeContactLogCrn = null;
     let activeJaleesNoteCrn = null;
     let loggerSelectionCrn = null;
     let pipelineWorkspacePage = 1;
     const PIPELINE_PAGE_SIZE = 75;
+    let pipelineStateCache = null;
+    let callHistoryCache = null;
+    let pipelineFilteredCompanies = [];
+    let pipelinePageCrns = [];
+    const pipelineSelectedCrns = new Set();
 
     function escapeHtml(value) {
       return String(value == null ? "" : value)
@@ -2149,7 +2498,9 @@
     }
 
     function getCallProfile(company) {
-      if (company && company.call_profile) return company.call_profile;
+      if (company && company.call_profile) {
+        return Object.fromEntries(Object.entries(company.call_profile).map(([key, value]) => [key, typeof value === "string" ? modernizeComplianceTerms(value) : value]));
+      }
       return {
         readiness: company && company.has_full_dossier ? "tailored" : "research_required",
         reason: "No verified call profile is available.",
@@ -2163,6 +2514,10 @@
         labour_supply_relevant: false,
         acs_status: "unknown"
       };
+    }
+
+    function modernizeComplianceTerms(value) {
+      return String(value || "").replace(/COP\s*119/gi, "BS 10119");
     }
 
     // =========================================================================
@@ -2203,16 +2558,35 @@
       const doSave = async () => {
         if (serverSaveInFlight) {
           serverSaveQueued = true;
+          if (autoSnapshotName) queuedSnapshotRequest = { name: autoSnapshotName, notes: autoSnapshotNotes };
           return;
         }
+        const hasDeltas = pendingPipelineCrns.size > 0 || pendingHistoryRecords.size > 0;
+        if (!autoSnapshotName && !hasPendingServerSync() && !hasDeltas && !fullStateSyncRequired) return;
         serverSaveInFlight = true;
         const saveVersion = localChangeCounter;
+        const sendFullState = Boolean(autoSnapshotName) || fullStateSyncRequired || !hasDeltas;
+        const pipelineState = loadPipelineState();
+        const sentPipelineVersions = new Map();
+        const sentHistoryRecords = new Map();
+        let pipelinePayload = pipelineState;
+        let historyPayload = getStoredHistory();
+        if (!sendFullState) {
+          pipelinePayload = {};
+          pendingPipelineCrns.forEach(crn => {
+            if (!pipelineState[crn]) return;
+            pipelinePayload[crn] = pipelineState[crn];
+            sentPipelineVersions.set(crn, Number(pipelineState[crn].last_updated || 0));
+          });
+          historyPayload = Array.from(pendingHistoryRecords.values());
+          pendingHistoryRecords.forEach((record, key) => sentHistoryRecords.set(key, record));
+        }
         let saveSucceeded = false;
         setDiskStatus("saving", "💾 Saving...");
         try {
           const payload = {
-            pipeline_state: loadPipelineState(),
-            call_history: getStoredHistory(),
+            pipeline_state: pipelinePayload,
+            call_history: historyPayload,
             active_user: currentUser ? currentUser.name : "Aroosa"
           };
           if (autoSnapshotName) {
@@ -2232,24 +2606,41 @@
           }
           const result = await res.json();
           lastSharedStateRevision = Math.max(lastSharedStateRevision, result.revision || 0);
-          if (saveVersion === localChangeCounter) {
+          if (sendFullState) {
+            if (saveVersion === localChangeCounter) {
+              pendingPipelineCrns.clear();
+              pendingHistoryRecords.clear();
+              fullStateSyncRequired = false;
+            }
+          } else {
+            sentPipelineVersions.forEach((version, crn) => {
+              const current = loadPipelineState()[crn];
+              if (Number((current && current.last_updated) || 0) <= version) pendingPipelineCrns.delete(crn);
+            });
+            sentHistoryRecords.forEach((record, key) => {
+              if (pendingHistoryRecords.get(key) === record) pendingHistoryRecords.delete(key);
+            });
+          }
+          if (saveVersion === localChangeCounter && !fullStateSyncRequired && pendingPipelineCrns.size === 0 && pendingHistoryRecords.size === 0) {
             try { localStorage.removeItem(PENDING_SYNC_KEY); } catch (e) {}
           }
           saveSucceeded = true;
           setDiskStatus("saved", "💾 Saved to Host");
-          if (typeof fetchSnapshotsListCount === "function") fetchSnapshotsListCount();
+          if (autoSnapshotName && typeof fetchSnapshotsListCount === "function") fetchSnapshotsListCount();
         } catch (e) {
           try { localStorage.setItem(PENDING_SYNC_KEY, "1"); } catch (storageError) {}
           setDiskStatus("offline", "⚠️ Saved locally · retrying");
           console.warn("[Persistence] Host save deferred:", e);
         } finally {
           serverSaveInFlight = false;
-          const needsFollowUp = serverSaveQueued || (hasPendingServerSync() && saveVersion !== localChangeCounter);
+          const snapshotRequest = queuedSnapshotRequest;
+          queuedSnapshotRequest = null;
+          const needsFollowUp = serverSaveQueued || hasPendingServerSync() || pendingPipelineCrns.size > 0 || pendingHistoryRecords.size > 0 || fullStateSyncRequired;
           serverSaveQueued = false;
-          if (navigator.onLine && needsFollowUp) {
-            autoSaveServerTimeout = setTimeout(() => syncStateToServer(true), 100);
+          if (navigator.onLine && saveSucceeded && needsFollowUp) {
+            autoSaveServerTimeout = setTimeout(() => syncStateToServer(true, snapshotRequest && snapshotRequest.name, snapshotRequest && snapshotRequest.notes), 100);
           } else if (navigator.onLine && !saveSucceeded && hasPendingServerSync()) {
-            autoSaveServerTimeout = setTimeout(() => syncStateToServer(true), 1500);
+            autoSaveServerTimeout = setTimeout(() => syncStateToServer(true, snapshotRequest && snapshotRequest.name, snapshotRequest && snapshotRequest.notes), 1500);
           }
         }
       };
@@ -2261,18 +2652,28 @@
     }
 
     function loadPipelineState() {
+      if (pipelineStateCache !== null) return pipelineStateCache;
       try {
-        return JSON.parse(localStorage.getItem("esc_pipeline_state_v7") || "{}");
+        pipelineStateCache = JSON.parse(localStorage.getItem("esc_pipeline_state_v7") || "{}");
       } catch (e) {
-        return {};
+        pipelineStateCache = {};
       }
+      return pipelineStateCache;
     }
 
-    function savePipelineState(state, syncServer = true) {
+    function replaceLocalPipelineState(state) {
+      pipelineStateCache = state && typeof state === "object" ? state : {};
+      localStorage.setItem("esc_pipeline_state_v7", JSON.stringify(pipelineStateCache));
+    }
+
+    function savePipelineState(state, syncServer = true, changedCrns = null) {
       try {
-        localStorage.setItem("esc_pipeline_state_v7", JSON.stringify(state));
+        replaceLocalPipelineState(state);
       } catch (e) {}
       if (syncServer) {
+        const crns = Array.isArray(changedCrns) ? changedCrns : (changedCrns ? [changedCrns] : []);
+        if (crns.length) crns.forEach(crn => pendingPipelineCrns.add(String(crn).toUpperCase()));
+        else fullStateSyncRequired = true;
         markPendingServerSync();
         syncStateToServer(false);
       }
@@ -2304,6 +2705,7 @@
       copyNewestGroup("notes_updated_at", ["call_notes", "last_outcome"]);
       copyNewestGroup("pin_updated_at", ["is_pinned", "pinned_at", "pinned_by"], "pinned_at");
       copyNewestGroup("jalees_notes_updated_at", ["jalees_notes", "jalees_notes_updated_at", "jalees_notes_updated_by"]);
+      copyNewestGroup("assignment_updated_at", ["assigned_to", "assigned_username", "assignment_status", "assigned_at", "assigned_by", "assignment_batch_id", "assignment_note"], "assigned_at");
       merged.last_updated = Math.max(baseLast, incomingLast);
       return merged;
     }
@@ -2337,7 +2739,7 @@
         current.last_caller = currentUser ? currentUser.name : "Aroosa";
         const allState = loadPipelineState();
         allState[currentCrn] = current;
-        savePipelineState(allState, true);
+        savePipelineState(allState, true, currentCrn);
         if (database[currentCrn]) {
           database[currentCrn].call_notes = current.call_notes;
           database[currentCrn].last_outcome = current.last_outcome;
@@ -2373,7 +2775,7 @@
     }
 
     function getCompanyPipeline(crn) {
-      if (!crn) return { pipeline_list: "all_qualified", contact_attempts: 0, call_notes: "", jalees_notes: "", is_pinned: false, last_outcome: null, pipeline_updated_at: 0, notes_updated_at: 0, pin_updated_at: 0 };
+      if (!crn) return { pipeline_list: "all_qualified", contact_attempts: 0, call_notes: "", jalees_notes: "", is_pinned: false, last_outcome: null, assignment_status: "unassigned", assigned_to: "", assigned_username: "", pipeline_updated_at: 0, notes_updated_at: 0, pin_updated_at: 0, assignment_updated_at: 0 };
       const savedState = loadPipelineState();
       if (savedState[crn]) {
         const legacyRevision = savedState[crn].last_updated || 0;
@@ -2383,18 +2785,27 @@
           call_notes: "",
           jalees_notes: "",
           is_pinned: false,
+          assigned_to: "",
+          assigned_username: "",
+          assignment_status: "unassigned",
           last_outcome: null,
           pipeline_updated_at: legacyRevision,
           notes_updated_at: legacyRevision,
           pin_updated_at: savedState[crn].pinned_at || legacyRevision,
+          assignment_updated_at: savedState[crn].assigned_at || legacyRevision,
           ...savedState[crn]
         };
       }
       const comp = database[crn] || {};
-      let defaultList = comp.pipeline_list;
+      // Imported research-disqualification must not masquerade as a human
+      // call outcome. Only explicit saved workspace state can put one of
+      // those companies in an operational off-list queue.
+      let defaultList = comp.prospect_status === "DISQUALIFIED" ? null : comp.pipeline_list;
       if (!defaultList) {
         if (comp.prospect_status === "DISQUALIFIED" || (comp.call_profile && comp.call_profile.readiness === "do_not_call")) {
-          defaultList = "off_our_list";
+          // Research disposition is independent of the operational call stage.
+          // Existing explicit off-list decisions remain untouched in saved state.
+          defaultList = "master_list";
         } else if (comp.is_sia_acs_approved) {
           defaultList = "sia_approved_entries";
         } else if (comp.rank && comp.rank <= 25) {
@@ -2413,12 +2824,20 @@
         jalees_notes_updated_at: comp.jalees_notes_updated_at || 0,
         jalees_notes_updated_by: comp.jalees_notes_updated_by || "",
         is_pinned: Boolean(comp.is_pinned),
+        assigned_to: comp.assigned_to || "",
+        assigned_username: comp.assigned_username || "",
+        assignment_status: comp.assignment_status || "unassigned",
+        assigned_at: comp.assigned_at || 0,
+        assigned_by: comp.assigned_by || "",
+        assignment_batch_id: comp.assignment_batch_id || "",
+        assignment_note: comp.assignment_note || "",
         pinned_at: comp.pinned_at || 0,
         pinned_by: comp.pinned_by || "",
         last_outcome: comp.last_outcome || null,
         pipeline_updated_at: comp.pipeline_updated_at || comp.last_updated || 0,
         notes_updated_at: comp.notes_updated_at || comp.last_updated || 0,
         pin_updated_at: comp.pin_updated_at || comp.pinned_at || comp.last_updated || 0,
+        assignment_updated_at: comp.assignment_updated_at || comp.assigned_at || comp.last_updated || 0,
         last_updated: comp.last_updated || 0
       };
     }
@@ -2426,9 +2845,27 @@
     function companyMatchesTab(company, tabId) {
       if (!company) return false;
       const pipe = getCompanyPipeline(company.crn);
+      if (tabId === "my_queue") {
+        return Boolean(currentUser && pipe.assigned_username === currentUser.username && ["assigned", "in_progress"].includes(pipe.assignment_status));
+      }
+      if (tabId === "human_review") return company.prospect_status === "NEEDS_REVIEW" && company.review_owner !== "RESEARCH_RETRY";
+      if (tabId === "website_opportunity") return isWebsiteOpportunity(company);
       if (tabId === "master_list") return true;
       if (tabId === "pinned") return Boolean(pipe.is_pinned);
+      if (tabId === "research_required") return company.prospect_status === "REGISTRY_PROSPECT" || !company.has_full_dossier || company.review_owner === "RESEARCH_RETRY";
+      if (tabId === "research_disqualified") return company.prospect_status === "DISQUALIFIED" || (company.call_profile && company.call_profile.readiness === "do_not_call");
+      if (tabId === "all_qualified") return company.prospect_status === "QUALIFIED" && !company.is_sia_acs_approved;
       return pipe.pipeline_list === tabId;
+    }
+
+    function isWebsiteOpportunity(company) {
+      if (!company) return false;
+      if (company.website_opportunity === true) return true;
+      const reachability = company.reachability || {};
+      const hasWebsite = Boolean(company.website || reachability.has_website);
+      const social = company.social_profiles && Object.values(company.social_profiles).some(Boolean);
+      const reachableWithoutWebsite = Boolean(company.phone || company.email || reachability.has_phone || reachability.has_email || reachability.has_social || social || (company.phone_numbers && company.phone_numbers.length));
+      return !hasWebsite && reachableWithoutWebsite;
     }
 
     function toggleCompanyPin(crn) {
@@ -2438,6 +2875,9 @@
       const current = getCompanyPipeline(crn);
       const isPinned = !current.is_pinned;
       const updatedAt = Date.now();
+      let assignmentStatus = current.assignment_status || "unassigned";
+      if (current.assigned_username && isContactAttempt) assignmentStatus = "in_progress";
+      if (current.assigned_username && ["reached", "unreachable", "off_our_list", "permanently_off_our_list"].includes(finalList)) assignmentStatus = "completed";
       const updated = {
         ...current,
         is_pinned: isPinned,
@@ -2448,7 +2888,7 @@
         last_caller: currentUser ? currentUser.name : "User"
       };
       allState[crn] = updated;
-      savePipelineState(allState, true);
+      savePipelineState(allState, true, crn);
       Object.assign(comp, updated);
       updatePipelineBadges();
       updateHeroPipelineDisplay(crn);
@@ -2485,7 +2925,7 @@
         delete localState[crn];
         savePipelineState(localState, false);
         const remainingHistory = getStoredHistory().filter(item => String(item.crn || "").toUpperCase() !== crn);
-        localStorage.setItem("esc_call_history", JSON.stringify(remainingHistory));
+        saveStoredHistory(remainingHistory);
         delete database[crn];
 
         if (currentCrn === crn) {
@@ -2542,10 +2982,14 @@
         last_updated: updatedAt,
         last_caller: (currentUser ? currentUser.name : "Aroosa")
       };
+      if (assignmentStatus !== (current.assignment_status || "unassigned")) {
+        updated.assignment_status = assignmentStatus;
+        updated.assignment_updated_at = updatedAt;
+      }
 
       const allState = loadPipelineState();
       allState[crn] = updated;
-      savePipelineState(allState);
+      savePipelineState(allState, true, crn);
 
       if (comp) {
         comp.pipeline_list = updated.pipeline_list;
@@ -2566,7 +3010,8 @@
     function appendHistoryRecord(record) {
       const history = getStoredHistory();
       history.unshift(record);
-      localStorage.setItem("esc_call_history", JSON.stringify(history));
+      saveStoredHistory(history);
+      pendingHistoryRecords.set(String(record.id || record.timestamp), record);
       markPendingServerSync();
       syncStateToServer(true);
       updateHistoryBadge();
@@ -2574,7 +3019,7 @@
 
     function buildHistoryRecord(comp, updated, details = {}) {
       return {
-        id: Date.now(),
+        id: details.id || Date.now(),
         timestamp: new Date().toLocaleString(),
         isoDate: new Date().toISOString().slice(0, 10),
         caller: currentUser ? currentUser.name : "Aroosa",
@@ -2616,7 +3061,7 @@
 
     function manualMoveCompany(crn, newList, sourceLabel = "Pipeline Workspace") {
       const comp = database[crn];
-      if (!comp || !PIPELINE_LISTS[newList]) return;
+      if (!comp || !PIPELINE_LISTS[newList] || PIPELINE_LISTS[newList].virtual) return;
       if (newList === "contacted") {
         openCompanyContactLog(crn, true);
         return;
@@ -2648,7 +3093,12 @@
 
     function updatePipelineBadges() {
       const counts = {
+        my_queue: 0,
         all_qualified: 0,
+        human_review: 0,
+        website_opportunity: 0,
+        research_required: 0,
+        research_disqualified: 0,
         pinned: 0,
         todays_targets: 0,
         sia_approved_entries: 0,
@@ -2665,11 +3115,23 @@
         const crn = keys[i];
         const info = getCompanyPipeline(crn);
         const l = info.pipeline_list || "master_list";
-        if (counts[l] !== undefined) counts[l]++;
+        if (l !== "all_qualified" && counts[l] !== undefined) counts[l]++;
         if (info.is_pinned) counts.pinned++;
+        const company = database[crn];
+        if (currentUser && info.assigned_username === currentUser.username && ["assigned", "in_progress"].includes(info.assignment_status)) counts.my_queue++;
+        if (company && company.prospect_status === "QUALIFIED" && !company.is_sia_acs_approved) counts.all_qualified++;
+        if (company && company.prospect_status === "NEEDS_REVIEW" && company.review_owner !== "RESEARCH_RETRY") counts.human_review++;
+        if (company && isWebsiteOpportunity(company)) counts.website_opportunity++;
+        if (company && (company.prospect_status === "REGISTRY_PROSPECT" || !company.has_full_dossier || company.review_owner === "RESEARCH_RETRY")) counts.research_required++;
+        if (company && (company.prospect_status === "DISQUALIFIED" || (company.call_profile && company.call_profile.readiness === "do_not_call"))) counts.research_disqualified++;
       }
 
       const countAll = document.getElementById("countAllQualified");
+      const countMyQueue = document.getElementById("countMyQueue");
+      const countHumanReview = document.getElementById("countHumanReview");
+      const countWebsiteOpportunity = document.getElementById("countWebsiteOpportunity");
+      const countResearchRequired = document.getElementById("countResearchRequired");
+      const countResearchDisqualified = document.getElementById("countResearchDisqualified");
       const countPinned = document.getElementById("countPinned");
       const countToday = document.getElementById("countTodaysTargets");
       const countSia = document.getElementById("countSiaApprovedEntries");
@@ -2681,6 +3143,11 @@
       const countMaster = document.getElementById("countMasterList");
 
       if (countAll) countAll.textContent = counts.all_qualified;
+      if (countMyQueue) countMyQueue.textContent = counts.my_queue;
+      if (countHumanReview) countHumanReview.textContent = counts.human_review;
+      if (countWebsiteOpportunity) countWebsiteOpportunity.textContent = counts.website_opportunity;
+      if (countResearchRequired) countResearchRequired.textContent = counts.research_required;
+      if (countResearchDisqualified) countResearchDisqualified.textContent = counts.research_disqualified;
       if (countPinned) countPinned.textContent = counts.pinned;
       if (countToday) countToday.textContent = counts.todays_targets;
       if (countSia) countSia.textContent = counts.sia_approved_entries;
@@ -2706,11 +3173,21 @@
       const jaleesNotesMeta = document.getElementById("jaleesNotesMeta");
       const editJaleesNoteBtn = document.getElementById("editCurrentJaleesNoteBtn");
       const pinCompanyBtn = document.getElementById("pinCompanyBtn");
+      const assignmentTag = document.getElementById("heroAssignmentTag");
 
       const meta = PIPELINE_LISTS[pipe.pipeline_list] || PIPELINE_LISTS.all_qualified;
       if (heroTag) {
         heroTag.textContent = meta.icon + " " + meta.label;
         heroTag.className = "tag pipeline-badge pipeline-" + pipe.pipeline_list;
+      }
+      if (assignmentTag) {
+        if (pipe.assigned_to) {
+          assignmentTag.style.display = "inline-flex";
+          assignmentTag.textContent = "☎ " + pipe.assigned_to + " · " + (pipe.assignment_status || "assigned").replace("_", " ");
+          assignmentTag.title = "Batch " + (pipe.assignment_batch_id || "not recorded") + (pipe.assignment_note ? " — " + pipe.assignment_note : "");
+        } else {
+          assignmentTag.style.display = "none";
+        }
       }
       if (pinCompanyBtn) {
         pinCompanyBtn.textContent = pipe.is_pinned ? "📌 Unpin company" : "📌 Pin company";
@@ -2954,17 +3431,336 @@
     }
 
     function getStoredHistory() {
+      if (callHistoryCache !== null) return callHistoryCache;
       try {
-        return JSON.parse(localStorage.getItem("esc_call_history") || "[]");
+        callHistoryCache = JSON.parse(localStorage.getItem("esc_call_history") || "[]");
       } catch (e) {
-        return [];
+        callHistoryCache = [];
       }
+      return callHistoryCache;
+    }
+
+    function saveStoredHistory(history) {
+      callHistoryCache = Array.isArray(history) ? history : [];
+      localStorage.setItem("esc_call_history", JSON.stringify(callHistoryCache));
     }
 
     function updateHistoryBadge() {
       const h = getStoredHistory();
       document.getElementById("callCountBadge").textContent = h.length;
     }
+
+    // =========================================================================
+    // AZURE V9 RESEARCH CENTRE - SINGLE-STEP PIPELINE CONTROLLER
+    // =========================================================================
+    const cloudResearchModal = document.getElementById("cloudResearchModalBackdrop");
+    let activeCloudRunId = null;
+    let activeCloudPollingTimer = null;
+
+    function cloudStatusLabel(status) {
+      return ({
+        PENDING_APPROVAL: "Awaiting Verification Code",
+        APPROVED_ENQUEUEING: "Authorized",
+        QUEUED: "Queued in Azure Cloud",
+        RUNNING: "Pipeline Executing",
+        HARVESTING: "Pipeline Executing",
+        PREPARING: "Pipeline Executing",
+        DISPATCHING: "Pipeline Executing",
+        RESEARCHING: "Pipeline Executing",
+        COMPILING: "Finalizing Dossiers",
+        COMPLETED: "Completed & Database Updated",
+        PARTIAL_SUCCESS: "Completed & Database Updated",
+        FAILED: "Execution Stopped",
+        DENIED: "Denied",
+        EXPIRED: "Verification Expired",
+        APPROVAL_LOCKED: "Verification Locked",
+        RETRY_APPROVAL_REQUIRED: "Needs New Verification",
+        EMAIL_FAILED: "Code Delivery Failed",
+        QUEUE_FAILED_NEW_APPROVAL_REQUIRED: "Queue Retry Required"
+      })[status] || String(status || "Unknown").replace(/_/g, " ");
+    }
+
+    function cloudStatusColour(status) {
+      if (["COMPLETED", "PARTIAL_SUCCESS"].includes(status)) return "#059669";
+      if (["PENDING_APPROVAL", "QUEUED", "HARVESTING", "PREPARING", "DISPATCHING", "RESEARCHING", "COMPILING", "RUNNING"].includes(status)) return "#6366f1";
+      if (["FAILED", "DENIED", "EXPIRED", "APPROVAL_LOCKED", "RETRY_APPROVAL_REQUIRED", "EMAIL_FAILED", "QUEUE_FAILED_NEW_APPROVAL_REQUIRED"].includes(status)) return "#dc2626";
+      return "#475569";
+    }
+
+    function renderCloudResearchRuns(runs) {
+      const container = document.getElementById("cloudResearchRuns");
+      if (!runs || !runs.length) {
+        container.innerHTML = '<div style="padding:18px; border:1px dashed var(--border); border-radius:var(--radius-sm); color:var(--text-muted); font-size:12px; text-align:center;">No recent cloud executions recorded.</div>';
+        return;
+      }
+      container.innerHTML = runs.map(run => {
+        const params = run.parameters || {};
+        const percent = Number(run.completion_percentage !== undefined ? run.completion_percentage : (run.progress && run.progress.completed && run.progress.total ? Math.round((run.progress.completed / run.progress.total) * 100) : (['COMPLETED','PARTIAL_SUCCESS'].includes(run.status) ? 100 : 0)));
+        const created = run.created_at ? new Date(Number(run.created_at) * 1000).toLocaleString("en-GB") : "—";
+        const isComplete = ['COMPLETED', 'PARTIAL_SUCCESS'].includes(run.status);
+        return '<article style="border:1px solid #e2e8f0; border-radius:var(--radius-sm); padding:12px; background:white; box-shadow:0 1px 3px rgba(0,0,0,0.02);">' +
+          '<div style="display:flex; justify-content:space-between; gap:8px; align-items:center;">' +
+            '<div><strong style="font-size:13px; color:#1e1b4b;">' + escapeHtml(cloudStatusLabel(run.status)) + '</strong><div style="font-size:10px; color:#94a3b8; font-family:monospace; margin-top:1px;">' + escapeHtml(run.run_id) + '</div></div>' +
+            '<span class="tag" style="color:white; font-size:10.5px; font-weight:800; background:' + cloudStatusColour(run.status) + ';">' + percent + '%</span>' +
+          '</div>' +
+          '<div style="font-size:11px; color:#64748b; margin-top:7px; line-height:1.4;">' +
+            'Volume: <strong>' + escapeHtml(String(params.count || 0)) + ' companies</strong> · ' + escapeHtml(params.location || "All UK") + ' · ' + escapeHtml(created) +
+          '</div>' +
+          '<div style="height:6px; background:#f1f5f9; border-radius:999px; overflow:hidden; margin-top:8px;">' +
+            '<div style="height:100%; width:' + percent + '%; background:' + (isComplete ? '#059669' : '#6366f1') + '; transition:width 0.4s ease;"></div>' +
+          '</div>' +
+          (run.error ? '<div style="margin-top:6px; color:#dc2626; font-size:11px;">' + escapeHtml(run.error) + '</div>' : '') +
+          '</article>';
+      }).join("");
+    }
+
+    async function loadCloudResearchRuns() {
+      const connection = document.getElementById("cloudResearchConnectionStatus");
+      try {
+        const configResponse = await fetch("/api/research-cloud/config", { cache: "no-store" });
+        const config = await configResponse.json();
+        if (!config.configured) {
+          connection.textContent = "Azure cloud bridge is offline or unconfigured.";
+          document.getElementById("requestCloudResearchBtn").disabled = true;
+          renderCloudResearchRuns([]);
+          return;
+        }
+        connection.textContent = "Connected to Azure · Scale-to-Zero Cooldown: 10m";
+        document.getElementById("requestCloudResearchBtn").disabled = false;
+        const response = await fetch("/api/research-cloud/runs?limit=25", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not load runs");
+        renderCloudResearchRuns(data.runs || []);
+
+        // Check if there is an active run pending approval or executing
+        const runs = data.runs || [];
+        const activeRun = runs.find(r => ["PENDING_APPROVAL", "APPROVED_ENQUEUEING", "QUEUED", "RUNNING", "HARVESTING", "PREPARING", "DISPATCHING", "RESEARCHING", "COMPILING"].includes(r.status));
+        if (activeRun && !activeCloudRunId) {
+          activeCloudRunId = activeRun.run_id;
+          if (activeRun.status === "PENDING_APPROVAL") {
+            showOtpView(activeRun.run_id);
+          } else {
+            showProgressView();
+            startActivePolling(activeRun.run_id);
+          }
+        }
+      } catch (error) {
+        connection.textContent = "Azure bridge status: " + (error.message || "Offline");
+      }
+    }
+
+    function showConfigView() {
+      document.getElementById("cloudConfigSection").style.display = "block";
+      document.getElementById("cloudOtpSection").style.display = "none";
+      document.getElementById("cloudActiveProgressSection").style.display = "none";
+      document.getElementById("cloudCompleteSection").style.display = "none";
+    }
+
+    function showOtpView(runId) {
+      activeCloudRunId = runId;
+      document.getElementById("cloudConfigSection").style.display = "none";
+      document.getElementById("cloudOtpSection").style.display = "block";
+      document.getElementById("cloudActiveProgressSection").style.display = "none";
+      document.getElementById("cloudCompleteSection").style.display = "none";
+      const otpInput = document.getElementById("cloudResearchOtpInput");
+      otpInput.value = "";
+      document.getElementById("cloudOtpStatusMsg").textContent = "";
+      setTimeout(() => otpInput.focus(), 100);
+    }
+
+    function showProgressView() {
+      document.getElementById("cloudConfigSection").style.display = "none";
+      document.getElementById("cloudOtpSection").style.display = "none";
+      document.getElementById("cloudActiveProgressSection").style.display = "block";
+      document.getElementById("cloudCompleteSection").style.display = "none";
+    }
+
+    function showCompleteView(commitResult) {
+      document.getElementById("cloudConfigSection").style.display = "none";
+      document.getElementById("cloudOtpSection").style.display = "none";
+      document.getElementById("cloudActiveProgressSection").style.display = "none";
+      document.getElementById("cloudCompleteSection").style.display = "block";
+      const msg = document.getElementById("cloudCompleteMessage");
+      const count = commitResult && commitResult.accepted_count ? commitResult.accepted_count : "All";
+      msg.textContent = count + " researched companies have been validated and added directly to your Call Desk database in one seamless step.";
+    }
+
+    async function requestCloudResearch() {
+      const button = document.getElementById("requestCloudResearchBtn");
+      const status = document.getElementById("cloudResearchRequestStatus");
+      const mode = document.getElementById("cloudResearchMode").value;
+      const parameters = {
+        mode,
+        concurrency: Number(document.getElementById("cloudResearchConcurrency").value) || 20,
+        sic: document.getElementById("cloudResearchSic").value.trim() || "80100"
+      };
+      if (mode === "workflow") {
+        parameters.count = Number(document.getElementById("cloudResearchCount").value) || 20;
+        parameters.location = document.getElementById("cloudResearchLocation").value.trim();
+      } else {
+        parameters.crns = document.getElementById("cloudResearchCrns").value.split(/[\s,;]+/).map(v => v.trim()).filter(Boolean);
+      }
+
+      button.disabled = true;
+      status.textContent = "Waking cloud server & requesting verification code…";
+      try {
+        const response = await fetch("/api/research-cloud/requests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ parameters })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Failed to initialize cloud pipeline.");
+        status.textContent = "";
+        showOtpView(result.run_id);
+        await loadCloudResearchRuns();
+      } catch (error) {
+        status.textContent = "Error: " + (error.message || "Failed to start pipeline.");
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    async function confirmCloudResearchOtp() {
+      const button = document.getElementById("confirmCloudResearchOtpBtn");
+      const errorDiv = document.getElementById("cloudOtpStatusMsg");
+      const otp = document.getElementById("cloudResearchOtpInput").value.trim();
+
+      if (!/^\d{8}$/.test(otp)) {
+        errorDiv.textContent = "Please enter the 8-digit verification code sent to your email.";
+        return;
+      }
+
+      button.disabled = true;
+      errorDiv.textContent = "Verifying code & activating research pipeline…";
+      try {
+        const response = await fetch("/api/research-cloud/runs/" + encodeURIComponent(activeCloudRunId) + "/approve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ otp, auto_commit: true })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Approval failed.");
+        showProgressView();
+        startActivePolling(activeCloudRunId);
+      } catch (error) {
+        errorDiv.textContent = error.message || "Invalid verification code. Please check your email.";
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function startActivePolling(runId) {
+      if (activeCloudPollingTimer) clearInterval(activeCloudPollingTimer);
+      const percentEl = document.getElementById("cloudActivePercent");
+      const barEl = document.getElementById("cloudActiveProgressBar");
+      const textEl = document.getElementById("cloudActiveStatusText");
+
+      percentEl.textContent = "5%";
+      barEl.style.width = "5%";
+      textEl.textContent = "Pipeline Active · Starting up…";
+
+      activeCloudPollingTimer = setInterval(async () => {
+        try {
+          const res = await fetch("/api/research-cloud/runs/" + encodeURIComponent(runId), { cache: "no-store" });
+          if (!res.ok) return;
+          const run = await res.json();
+          const percent = Number(run.completion_percentage || 0);
+
+          percentEl.textContent = percent + "%";
+          barEl.style.width = percent + "%";
+
+          if (percent < 25) {
+            textEl.textContent = "Initializing cloud research container… (" + percent + "%)";
+          } else if (percent < 90) {
+            textEl.textContent = "Deep research pipeline in progress… (" + percent + "%)";
+          } else if (percent < 100) {
+            textEl.textContent = "Finalizing records & validating dossiers… (" + percent + "%)";
+          }
+
+          if (percent === 100 || run.auto_committed || ["COMPLETED", "PARTIAL_SUCCESS"].includes(run.status)) {
+            clearInterval(activeCloudPollingTimer);
+            activeCloudPollingTimer = null;
+            percentEl.textContent = "100%";
+            barEl.style.width = "100%";
+            setTimeout(() => {
+              showCompleteView(run.commit_result);
+              reloadDatabaseAfterImport();
+            }, 600);
+          } else if (["FAILED", "DENIED", "EXPIRED", "APPROVAL_LOCKED"].includes(run.status)) {
+            clearInterval(activeCloudPollingTimer);
+            activeCloudPollingTimer = null;
+            textEl.textContent = "Execution stopped: " + (run.error || run.status);
+            textEl.style.color = "#dc2626";
+          }
+        } catch (_) {}
+      }, 3000);
+    }
+
+    async function reloadDatabaseAfterImport() {
+      try {
+        const res = await fetch("/api/company-index?t=" + Date.now());
+        if (res.ok) {
+          const liveData = await res.json();
+          if (liveData && Object.keys(liveData).length > 0) {
+            database = liveData;
+            companyDetailRequests.clear();
+            onDatabaseReady(true);
+            showToast("✓ Database updated with newly researched companies!");
+          }
+        }
+      } catch (_) {}
+    }
+
+    function openCloudResearchCentre() {
+      cloudResearchModal.classList.add("open");
+      loadCloudResearchRuns();
+      clearInterval(cloudResearchPollInterval);
+      cloudResearchPollInterval = setInterval(() => {
+        if (cloudResearchModal.classList.contains("open")) loadCloudResearchRuns();
+      }, 10000);
+    }
+
+    function closeCloudResearchCentre() {
+      cloudResearchModal.classList.remove("open");
+      clearInterval(cloudResearchPollInterval);
+      cloudResearchPollInterval = null;
+    }
+
+    document.getElementById("cloudResearchBtn").addEventListener("click", openCloudResearchCentre);
+    document.getElementById("closeCloudResearchBtn").addEventListener("click", closeCloudResearchCentre);
+    document.getElementById("refreshCloudResearchBtn").addEventListener("click", loadCloudResearchRuns);
+    document.getElementById("requestCloudResearchBtn").addEventListener("click", requestCloudResearch);
+    document.getElementById("confirmCloudResearchOtpBtn").addEventListener("click", confirmCloudResearchOtp);
+    document.getElementById("cancelCloudOtpBtn").addEventListener("click", showConfigView);
+    document.getElementById("cloudResearchOtpInput").addEventListener("keydown", e => {
+      if (e.key === "Enter") confirmCloudResearchOtp();
+    });
+    document.getElementById("viewNewCompaniesBtn").addEventListener("click", () => {
+      closeCloudResearchCentre();
+      switchPipelineTab("all_qualified");
+    });
+    document.querySelectorAll(".cloud-preset-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const count = btn.dataset.count;
+        document.getElementById("cloudResearchCount").value = count;
+        document.querySelectorAll(".cloud-preset-btn").forEach(b => {
+          b.style.background = b === btn ? "#e0e7ff" : "";
+          b.style.color = b === btn ? "#3730a3" : "";
+          b.style.fontWeight = b === btn ? "800" : "";
+        });
+      });
+    });
+
+    cloudResearchModal.addEventListener("click", event => {
+      if (event.target === cloudResearchModal) closeCloudResearchCentre();
+    });
+    document.getElementById("cloudResearchMode").addEventListener("change", event => {
+      const workflow = event.target.value === "workflow";
+      document.getElementById("cloudWorkflowFields").style.display = workflow ? "block" : "none";
+      document.getElementById("cloudCrnFields").style.display = workflow ? "none" : "block";
+    });
+
 
     // =========================================================================
     // HANDLER SUITE CONTROLLER & REPORTS (JALEES ONLY)
@@ -2982,10 +3778,23 @@
         return;
       }
       renderHandlerReports();
+      loadConfiguredCallers();
       renderAssignPreview();
       renderRetargetList();
       applyWorkspaceSettings(workspaceSettings);
       handlerSuiteModal.classList.add("open");
+    }
+
+    async function loadConfiguredCallers() {
+      try {
+        const response = await fetch("/api/callers", { cache: "no-store" });
+        if (!response.ok) return;
+        const result = await response.json();
+        const select = document.getElementById("assignCallerSelect");
+        const selected = select.value;
+        select.innerHTML = (result.callers || []).map(caller => "<option value=\"" + escapeHtml(caller.username) + "\">" + escapeHtml(caller.name) + "</option>").join("");
+        if (Array.from(select.options).some(option => option.value === selected)) select.value = selected;
+      } catch (_) {}
     }
 
     // Handler Tab Navigation
@@ -3010,6 +3819,7 @@
     function resetResearchImportPreview(message) {
       pendingResearchImportArtifact = null;
       pendingResearchImportPreview = null;
+      pendingCloudResearchRunId = null;
       document.getElementById("commitResearchImportBtn").disabled = true;
       document.getElementById("researchImportPreviewWrap").style.display = "none";
       document.getElementById("researchImportStatus").textContent = message || "Choose a V9 research import file.";
@@ -3077,6 +3887,7 @@
         });
         const preview = await response.json();
         if (!response.ok) throw new Error(preview.error || "Import validation failed.");
+        pendingCloudResearchRunId = null;
         pendingResearchImportArtifact = artifact;
         pendingResearchImportPreview = preview;
         renderResearchImportPreview(preview);
@@ -3093,8 +3904,8 @@
         showToast("Only Jalees can import research.");
         return;
       }
-      if (!pendingResearchImportArtifact || !pendingResearchImportPreview) {
-        showToast("Preview the import file first.");
+      if ((!pendingResearchImportArtifact && !pendingCloudResearchRunId) || !pendingResearchImportPreview) {
+        showToast("Preview a completed cloud run or import file first.");
         return;
       }
       const acceptedCount = pendingResearchImportPreview.accepted_count || 0;
@@ -3104,11 +3915,16 @@
       button.disabled = true;
       document.getElementById("researchImportStatus").textContent = "Importing " + acceptedCount + " companies and saving a recovery snapshot...";
       try {
-        const response = await fetch("/api/research-import/commit", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ artifact: pendingResearchImportArtifact })
-        });
+        const endpoint = pendingCloudResearchRunId
+          ? "/api/research-cloud/runs/" + encodeURIComponent(pendingCloudResearchRunId) + "/commit"
+          : "/api/research-import/commit";
+        const response = await fetch(endpoint, pendingCloudResearchRunId
+          ? { method: "POST" }
+          : {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ artifact: pendingResearchImportArtifact })
+            });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Research import failed.");
 
@@ -3116,6 +3932,7 @@
           "Imported " + result.accepted_count + " companies from " + result.batch_id + ". Recovery snapshot: " + result.recovery_snapshot.name + ".";
         pendingResearchImportArtifact = null;
         pendingResearchImportPreview = null;
+        pendingCloudResearchRunId = null;
         document.getElementById("researchImportFileInput").value = "";
         await fetchUpdatedDatabase(result.metadata);
         if (typeof fetchSnapshotsListCount === "function") fetchSnapshotsListCount();
@@ -3170,6 +3987,7 @@
     document.getElementById("exportDailyReportCsvBtn").addEventListener("click", exportDailyReportCsv);
 
     function renderHandlerReports() {
+      renderManagerAnalytics();
       const history = getStoredHistory();
       const filter = document.getElementById("reportDateFilter").value;
       const todayStr = new Date().toISOString().slice(0, 10);
@@ -3227,6 +4045,31 @@
       });
     }
 
+    async function renderManagerAnalytics() {
+      const body = document.getElementById("managerCallerAnalyticsBody");
+      const inventory = document.getElementById("managerInventorySummary");
+      if (!body || !inventory) return;
+      try {
+        const response = await fetch("/api/handler/analytics?t=" + Date.now(), { cache: "no-store" });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const data = (await response.json()).analytics;
+        const inv = data.inventory || {};
+        inventory.innerHTML = [
+          [inv.qualified_unassigned || 0, "Qualified unassigned"],
+          [inv.human_review_unassigned || 0, "Human review"],
+          [inv.website_unassigned || 0, "Website leads"],
+          [inv.active_assignments || 0, "Active assignments"],
+          [inv.researched || 0, "Researched dossiers"]
+        ].map(item => "<div class=\"metric-card-box\"><span class=\"num\">" + item[0] + "</span><span class=\"lbl\">" + item[1] + "</span></div>").join("");
+        body.innerHTML = (data.callers || []).map(caller => "<tr>" +
+          "<td><strong>" + escapeHtml(caller.name) + "</strong></td>" +
+          "<td>" + caller.assigned + "</td><td>" + caller.open + "</td><td>" + caller.attempted + "</td><td>" + caller.reached + "</td>" +
+          "<td><strong>" + caller.conversion_rate + "%</strong></td></tr>").join("") || "<tr><td colspan=\"6\">No caller accounts configured.</td></tr>";
+      } catch (_) {
+        body.innerHTML = "<tr><td colspan=\"6\">Manager analytics are temporarily unavailable.</td></tr>";
+      }
+    }
+
     function exportDailyReportCsv() {
       const isHistoryModalOpen = document.getElementById("historyModalBackdrop") && document.getElementById("historyModalBackdrop").classList.contains("open");
       const history = isHistoryModalOpen ? getFilteredHistoryRecords() : getStoredHistory();
@@ -3260,65 +4103,92 @@
       showToast("History CSV Exported (" + history.length + " records)!");
     }
 
-    // 2. Assign Next N Companies Workflow
-    function getAvailableQualifiedBatch(n) {
-      const allCompanies = Object.values(database);
-      const available = allCompanies.filter(c => {
-        const pipe = getCompanyPipeline(c.crn);
-        return pipe.pipeline_list === "all_qualified";
-      });
-
-      available.sort((a, b) => {
-        if (a.rank && b.rank) return a.rank - b.rank;
-        if (a.rank) return -1;
-        if (b.rank) return 1;
-        return (b.deterministic_score || 0) - (a.deterministic_score || 0);
-      });
-
-      return available.slice(0, n);
-    }
-
-    function renderAssignPreview() {
+    // 2. Server-authoritative caller assignment workflow
+    async function renderAssignPreview() {
       const n = parseInt(document.getElementById("assignBatchSizeInput").value) || 25;
-      const batch = getAvailableQualifiedBatch(n);
+      const callerUsername = document.getElementById("assignCallerSelect").value;
+      const source = document.getElementById("assignSourceSelect").value;
       const tbody = document.getElementById("assignPreviewTableBody");
-      tbody.innerHTML = "";
-
-      if (batch.length === 0) {
-        tbody.innerHTML = "<tr><td colspan=\"5\" style=\"text-align:center; color:var(--text-dim); padding:16px;\">No unassigned qualified companies remaining in All Qualified.</td></tr>";
-        return;
+      const status = document.getElementById("assignmentPreviewStatus");
+      tbody.innerHTML = "<tr><td colspan=\"5\">Checking the live assignment queue…</td></tr>";
+      status.textContent = "Validating this batch against the shared workspace…";
+      try {
+        const response = await fetch("/api/assignments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ caller_username: callerUsername, source, count: n, preview_only: true })
+        });
+        const preview = await response.json();
+        if (!response.ok) throw new Error(preview.error || "Assignment preview failed.");
+        currentAssignmentPreview = preview;
+        const batch = preview.companies || [];
+        status.textContent = batch.length + " compan" + (batch.length === 1 ? "y" : "ies") + " available for " + preview.caller.name + ".";
+        tbody.innerHTML = "";
+        if (!batch.length) {
+          tbody.innerHTML = "<tr><td colspan=\"5\" style=\"text-align:center; color:var(--text-dim); padding:16px;\">No unassigned companies match this cohort.</td></tr>";
+          return;
+        }
+        batch.forEach(c => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = "<td>" + (c.rank ? "#" + c.rank : "—") + "</td>" +
+            "<td><strong>" + escapeHtml(c.company_name) + "</strong><br><span class=\"tag crn\" style=\"font-size:8.5px;\">" + escapeHtml(c.crn) + "</span></td>" +
+            "<td>" + (c.deterministic_score || 0) + " pts</td>" +
+            "<td>" + escapeHtml(c.prospect_status || "—") + "</td>" +
+            "<td>" + escapeHtml(c.website_opportunity ? "Website" + (c.service_route && c.service_route !== "WEBSITE" ? " + " + c.service_route : "") : (c.service_route || "Human review")) + "</td>";
+          tbody.appendChild(tr);
+        });
+      } catch (error) {
+        currentAssignmentPreview = null;
+        status.textContent = error.message || "Could not preview assignment.";
+        tbody.innerHTML = "<tr><td colspan=\"5\" style=\"color:#b91c1c;\">Could not load the assignment preview.</td></tr>";
       }
-
-      batch.forEach(c => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = "<td>" + (c.rank ? "#" + c.rank : "—") + "</td>" +
-          "<td><strong>" + c.company_name + "</strong><br><span class=\"tag crn\" style=\"font-size:8.5px;\">" + c.crn + "</span></td>" +
-          "<td>" + (c.deterministic_score || 0) + " pts</td>" +
-          "<td style=\"font-family:monospace, monospace;\">" + (c.phone || (c.phone_numbers && c.phone_numbers[0] ? c.phone_numbers[0].number : "—")) + "</td>" +
-          "<td>" + (c.primary_service_verdict || "Security Operations") + "</td>";
-        tbody.appendChild(tr);
-      });
     }
 
-    document.getElementById("assignBatchSizeInput").addEventListener("input", renderAssignPreview);
-    document.getElementById("executeAssignNextNBtn").addEventListener("click", () => {
-      const n = parseInt(document.getElementById("assignBatchSizeInput").value) || 25;
-      const batch = getAvailableQualifiedBatch(n);
-      if (batch.length === 0) {
-        showToast("No qualified companies available to assign.");
+    async function executeAssignmentBatch() {
+      if (!currentAssignmentPreview || !currentAssignmentPreview.eligible_count) {
+        showToast("Preview a non-empty assignment batch first.");
         return;
       }
+      const n = parseInt(document.getElementById("assignBatchSizeInput").value) || 25;
+      const callerUsername = document.getElementById("assignCallerSelect").value;
+      const source = document.getElementById("assignSourceSelect").value;
+      const note = document.getElementById("assignBatchNoteInput").value.trim();
+      if (!confirm("Assign " + currentAssignmentPreview.eligible_count + " companies to " + currentAssignmentPreview.caller.name + "? A recovery snapshot will be created.")) return;
+      const button = document.getElementById("executeAssignNextNBtn");
+      button.disabled = true;
+      try {
+        const response = await fetch("/api/assignments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ caller_username: callerUsername, source, count: n, note })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Assignment failed.");
+        replaceLocalPipelineState(result.pipeline_state || {});
+        saveStoredHistory(result.call_history || []);
+        Object.entries(result.pipeline_state || {}).forEach(([crn, entry]) => { if (database[crn]) Object.assign(database[crn], entry); });
+        lastSharedStateRevision = Math.max(lastSharedStateRevision, result.revision || 0);
+        localStorage.removeItem(PENDING_SYNC_KEY);
+        pendingPipelineCrns.clear();
+        pendingHistoryRecords.clear();
+        currentAssignmentPreview = null;
+        updatePipelineBadges();
+        populateQuickSelectors();
+        updateHistoryBadge();
+        await renderAssignPreview();
+        renderHandlerReports();
+        showToast("Assigned " + result.assigned_count + " companies to " + result.caller.name + ".");
+      } catch (error) {
+        showToast(error.message || "Could not create the assignment batch.");
+      } finally {
+        button.disabled = false;
+      }
+    }
 
-      batch.forEach(c => {
-        setCompanyPipeline(c.crn, "todays_targets", null, null, null, null, false);
-      });
-
-      syncStateToServer(true, "Auto: Assigned " + batch.length + " to Today's Targets", "Batch size " + n + " targets assigned by " + (currentUser ? currentUser.name : "Handler"));
-      showToast("⚡ Assigned " + batch.length + " companies to Today's Targets & Auto-Saved Snapshot!");
-      renderAssignPreview();
-      updatePipelineBadges();
-      populateQuickSelectors();
-    });
+    document.getElementById("previewAssignmentBtn").addEventListener("click", renderAssignPreview);
+    document.getElementById("executeAssignNextNBtn").addEventListener("click", executeAssignmentBatch);
+    document.getElementById("assignCallerSelect").addEventListener("change", () => { currentAssignmentPreview = null; renderAssignPreview(); });
+    document.getElementById("assignSourceSelect").addEventListener("change", () => { currentAssignmentPreview = null; renderAssignPreview(); });
 
     // 3. Re-target from Contacted & Unreachable Leads Workflow
     function renderRetargetList() {
@@ -3405,8 +4275,8 @@
         mergedHistory = Array.from(historyMap.values()).sort((a, b) => (b.id || 0) - (a.id || 0));
       }
 
-      localStorage.setItem("esc_pipeline_state_v7", JSON.stringify(mergedState));
-      localStorage.setItem("esc_call_history", JSON.stringify(mergedHistory));
+      replaceLocalPipelineState(mergedState);
+      saveStoredHistory(mergedHistory);
       for (const [crn, entry] of Object.entries(mergedState)) {
         if (database[crn]) Object.assign(database[crn], entry);
       }
@@ -3512,11 +4382,11 @@
 
     function startAutoSync() {
       if (autoSyncInterval) clearInterval(autoSyncInterval);
-      autoSyncInterval = setInterval(() => {
-        checkForLiveUpdates(false);
+      autoSyncInterval = setInterval(async () => {
+        const status = await checkForLiveUpdates(false);
         if (hasPendingServerSync()) {
           syncStateToServer(true);
-        } else {
+        } else if (status && Number(status.workspace_revision || 0) > lastSharedStateRevision) {
           refreshSharedStateFromServer(false);
         }
       }, 5000);
@@ -3529,7 +4399,7 @@
         const res = await fetch("/api/status?t=" + Date.now());
         if (!res.ok) {
           updateSyncStatus("local", "Local Mode");
-          return;
+          return null;
         }
         const meta = await res.json();
         const serverTimestamp = meta.last_updated || 0;
@@ -3544,8 +4414,10 @@
           if (lastSyncTimestamp === 0) lastSyncTimestamp = serverTimestamp;
           updateSyncStatus("live", "Live · " + caseCount + " Cases");
         }
+        return meta;
       } catch (e) {
         updateSyncStatus("local", "Local Mode");
+        return null;
       }
     }
 
@@ -3920,13 +4792,13 @@
         ? (callProfile.reason || comp.why_buy || comp.rationale)
         : callProfile.reason;
 
-      const cleanPkg = (callProfile.primary_offer || comp.target_package || "Turnkey SIA ACS Accreditation & COP 119 Labour Provision")
-        .replace(/\s*\(?£[\d,]+\)?/g, "").trim();
+      const cleanPkg = (callProfile.primary_offer || comp.target_package || "SIA ACS Readiness & BS 10119 Labour Provision")
+        .replace(/\s*\(?£[\d,]+\)?/g, "").replace(/COP\s*119/gi, "BS 10119").trim();
       document.getElementById("battleTargetPkg").textContent = cleanPkg;
 
       const evList = document.getElementById("battleEvidenceList");
       evList.innerHTML = "";
-      const evidence = comp.evidence_points && comp.evidence_points.length > 0 ? comp.evidence_points : ["Active UK registered security provider."];
+      const evidence = comp.evidence_points && comp.evidence_points.length > 0 ? comp.evidence_points : ["No verified commercial evidence is loaded for this company."];
       evidence.slice(0, 4).forEach(ep => {
         const li = document.createElement("li");
         li.textContent = ep.replace(/\s*\(?£[\d,]+\)?/g, "");
@@ -3945,6 +4817,26 @@
         redFlagsSection.style.display = "flex";
       } else {
         redFlagsSection.style.display = "none";
+      }
+
+      // Dedicated Website Opportunity & Digital Angle
+      const webOppSection = document.getElementById("intelWebsiteOppSection");
+      const webOppBadge = document.getElementById("intelWebsiteOppBadge");
+      const webOppBody = document.getElementById("intelWebsiteOppBody");
+      if (webOppSection) {
+        const hasWebOpp = isWebsiteOpportunity(comp);
+        if (hasWebOpp) {
+          webOppSection.style.display = "block";
+          if (!comp.website || comp.website === "None" || comp.website === "Not Detected") {
+            if (webOppBadge) webOppBadge.textContent = "🚨 No Website";
+            if (webOppBody) webOppBody.textContent = "No verified corporate website found. Cold call hook: In private security, commercial buyers and ACS auditors treat lack of a verifiable website as an immediate vetting blocker. Pitch ESC's digital & compliance onboarding.";
+          } else {
+            if (webOppBadge) webOppBadge.textContent = "⚠️ Digital Opportunity";
+            if (webOppBody) webOppBody.textContent = `Website logged (${comp.website}), but lacks modern commercial security compliance disclosures or quote forms. Pitch ESC digital upgrade.`;
+          }
+        } else {
+          webOppSection.style.display = "none";
+        }
       }
     }
 
@@ -4073,9 +4965,11 @@
         const matchName = c.company_name && c.company_name.toLowerCase().includes(query);
         const matchDm = c.decision_makers && c.decision_makers.some(dm => dm.name && dm.name.toLowerCase().includes(query));
         const matchLoc = (c.operational_address && c.operational_address.toLowerCase().includes(query)) || (c.registered_address && c.registered_address.toLowerCase().includes(query));
+        const matchPhone = window.ESCPhoneSearch.matchingPhone(c, query);
+        const phoneDetail = window.ESCPhoneSearch.matchingPhoneDetails ? window.ESCPhoneSearch.matchingPhoneDetails(c, query) : null;
 
-        if (matchCrn || matchName || matchDm || matchLoc) {
-          results.push(c);
+        if (matchCrn || matchName || matchDm || matchLoc || matchPhone) {
+          results.push({ company: c, matchingPhone: matchPhone, phoneDetail });
           if (results.length >= 25) break;
         }
       }
@@ -4087,15 +4981,23 @@
       }
 
       searchDropdown.innerHTML = "";
-      results.forEach(c => {
+      results.forEach(result => {
+        const c = result.company;
         const pipe = getCompanyPipeline(c.crn);
         const item = document.createElement("div");
         item.className = "search-result-item";
+        const phoneHtml = result.phoneDetail
+          ? (result.phoneDetail.isMobile
+              ? "<span style=\"color:#059669; font-weight:750;\">📱 " + escapeHtml(result.phoneDetail.number) + (result.phoneDetail.dmName ? " (" + escapeHtml(result.phoneDetail.dmName) + ")" : "") + "</span>"
+              : "<span style=\"color:#4b5563;\">☎ " + escapeHtml(result.phoneDetail.number) + (result.phoneDetail.purpose ? " (" + escapeHtml(result.phoneDetail.purpose) + ")" : "") + "</span>")
+          : (result.matchingPhone ? "<span>☎ " + escapeHtml(result.matchingPhone) + "</span>" : "");
+
         item.innerHTML = "<div>" +
           "<div class=\"res-name\">" + (pipe.is_pinned ? "📌 " : "") + c.company_name + "</div>" +
           "<div class=\"res-meta\">" +
           "<span class=\"tag crn\" style=\"font-size:9px\">" + c.crn + "</span>" +
           "<span>" + (c.rank ? "Rank #" + c.rank : (c.primary_service_verdict || "Security")) + "</span>" +
+          phoneHtml +
           "<span>📍 " + (c.operational_address ? c.operational_address.slice(0, 30) : (c.registered_address ? c.registered_address.slice(0, 30) : "")) + "...</span>" +
           "</div>" +
           "</div>" +
@@ -4104,6 +5006,13 @@
           "</div>";
         item.addEventListener("click", () => {
           loadCompany(c.crn);
+          if (result.phoneDetail && result.phoneDetail.dmName && c.decision_makers) {
+            const idx = c.decision_makers.findIndex(dm => dm && dm.name === result.phoneDetail.dmName);
+            if (idx >= 0) {
+              selectedDmIndex = idx;
+              renderDecisionMakers();
+            }
+          }
           searchDropdown.style.display = "none";
           searchInput.value = "";
           searchClearBtn.style.display = "none";
@@ -4116,14 +5025,30 @@
     searchInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         const query = searchInput.value.trim().toUpperCase();
-        if (database[query]) {
-          loadCompany(query);
+        if (!query) return;
+        const directCompany = database[query] || Object.values(database).find(company =>
+          window.ESCPhoneSearch.companyMatchesPhone(company, query)
+        );
+        if (directCompany) {
+          loadCompany(directCompany.crn || query);
+          const matchedPhoneDetail = window.ESCPhoneSearch.matchingPhoneDetails
+            ? window.ESCPhoneSearch.matchingPhoneDetails(directCompany, query)
+            : null;
+          if (matchedPhoneDetail && matchedPhoneDetail.dmName && directCompany.decision_makers) {
+            const idx = directCompany.decision_makers.findIndex(dm => dm && dm.name === matchedPhoneDetail.dmName);
+            if (idx >= 0) {
+              selectedDmIndex = idx;
+              renderDecisionMakers();
+            }
+          }
           searchDropdown.style.display = "none";
           searchInput.value = "";
           searchClearBtn.style.display = "none";
         }
       }
     });
+
+
 
     searchClearBtn.addEventListener("click", () => {
       searchInput.value = "";
@@ -4177,7 +5102,7 @@
       current.last_updated = updatedAt;
       const allState = loadPipelineState();
       allState[activeJaleesNoteCrn] = current;
-      savePipelineState(allState, true);
+      savePipelineState(allState, true, activeJaleesNoteCrn);
       syncStateToServer(true);
       if (database[activeJaleesNoteCrn]) Object.assign(database[activeJaleesNoteCrn], current);
       if (currentCrn === activeJaleesNoteCrn) updateHeroPipelineDisplay(currentCrn);
@@ -4303,6 +5228,62 @@
     const pipelineTableSearchInput = document.getElementById("pipelineTableSearchInput");
     const refreshPipelineTableBtn = document.getElementById("refreshPipelineTableBtn");
     const pipelineSortSelect = document.getElementById("pipelineSortSelect");
+    const pipelineFilterControls = [
+      "pipelineContactFilter", "pipelineWebsiteFilter", "pipelineQualificationFilter",
+      "pipelineDossierFilter", "pipelineActivityFilter", "pipelinePinFilter"
+    ].map(id => document.getElementById(id));
+
+    function hasTextValue(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      return Boolean(normalized && !["n/a", "na", "none", "not found", "unknown", "—"].includes(normalized));
+    }
+
+    function companyContactAvailability(company) {
+      const hasPhone = hasTextValue(company.phone) || (company.phone_numbers || []).some(item => hasTextValue(item && item.number));
+      const hasEmail = hasTextValue(company.email) || (company.emails || []).some(item => hasTextValue(typeof item === "string" ? item : item && item.email));
+      return { hasPhone, hasEmail, hasWebsite: hasTextValue(company.website) };
+    }
+
+    function companyMatchesWorkspaceFilters(company) {
+      const pipe = getCompanyPipeline(company.crn);
+      const availability = companyContactAvailability(company);
+      const contact = document.getElementById("pipelineContactFilter").value;
+      const website = document.getElementById("pipelineWebsiteFilter").value;
+      const qualification = document.getElementById("pipelineQualificationFilter").value;
+      const dossier = document.getElementById("pipelineDossierFilter").value;
+      const activity = document.getElementById("pipelineActivityFilter").value;
+      const pin = document.getElementById("pipelinePinFilter").value;
+
+      if (contact === "phone_or_email" && !(availability.hasPhone || availability.hasEmail)) return false;
+      if (contact === "phone" && !availability.hasPhone) return false;
+      if (contact === "email" && !availability.hasEmail) return false;
+      if (contact === "phone_and_email" && !(availability.hasPhone && availability.hasEmail)) return false;
+      if (contact === "none" && (availability.hasPhone || availability.hasEmail)) return false;
+      if (website === "available" && !availability.hasWebsite) return false;
+      if (website === "missing" && availability.hasWebsite) return false;
+      if (qualification === "needs_acs" && !(company.prospect_status === "QUALIFIED" && !company.is_sia_acs_approved)) return false;
+      if (qualification === "acs_approved" && !company.is_sia_acs_approved) return false;
+      if (qualification === "research_required" && !(company.prospect_status === "REGISTRY_PROSPECT" || !company.has_full_dossier)) return false;
+      if (qualification === "disqualified" && !(company.prospect_status === "DISQUALIFIED" || (company.call_profile && company.call_profile.readiness === "do_not_call"))) return false;
+      if (dossier === "full" && !company.has_full_dossier) return false;
+      if (dossier === "missing" && company.has_full_dossier) return false;
+      if (activity === "not_contacted" && (pipe.contact_attempts || 0) > 0) return false;
+      if (activity === "attempted" && (pipe.contact_attempts || 0) < 1) return false;
+      if (activity === "has_notes" && !(hasTextValue(pipe.call_notes) || hasTextValue(pipe.jalees_notes))) return false;
+      if (pin === "pinned" && !pipe.is_pinned) return false;
+      if (pin === "not_pinned" && pipe.is_pinned) return false;
+      return true;
+    }
+
+    function updatePipelineBulkCount() {
+      document.getElementById("pipelineBulkCount").textContent = pipelineSelectedCrns.size + " selected";
+      const selectPage = document.getElementById("pipelineSelectPageCheckbox");
+      if (selectPage) {
+        const selectedOnPage = pipelinePageCrns.filter(crn => pipelineSelectedCrns.has(crn)).length;
+        selectPage.checked = pipelinePageCrns.length > 0 && selectedOnPage === pipelinePageCrns.length;
+        selectPage.indeterminate = selectedOnPage > 0 && selectedOnPage < pipelinePageCrns.length;
+      }
+    }
 
     function openPipelineDrawer() {
       if (pipelineDrawerListFilter) pipelineDrawerListFilter.value = currentPipelineTab;
@@ -4329,22 +5310,18 @@
       if (filterList !== "all") {
         if (filterList === "master_list") {
           // All companies
-        } else if (filterList === "pinned") {
-          companies = companies.filter(c => getCompanyPipeline(c.crn).is_pinned);
         } else {
-          companies = companies.filter(c => {
-            const pipe = getCompanyPipeline(c.crn);
-            return pipe.pipeline_list === filterList;
-          });
+          companies = companies.filter(c => companyMatchesTab(c, filterList));
         }
       }
+
+      companies = companies.filter(companyMatchesWorkspaceFilters);
 
       if (search) {
         companies = companies.filter(c => {
           const matchCrn = c.crn && c.crn.toLowerCase().includes(search);
           const matchName = c.company_name && c.company_name.toLowerCase().includes(search);
-          const phoneHaystack = [c.phone || "", ...(c.phone_numbers || []).map(phone => phone.number || "")].join(" ").toLowerCase();
-          const matchPhone = phoneHaystack.includes(search);
+          const matchPhone = window.ESCPhoneSearch.companyMatchesPhone(c, search);
           const pipe = getCompanyPipeline(c.crn);
           const matchNotes = pipe.call_notes && pipe.call_notes.toLowerCase().includes(search);
           const matchJaleesNotes = pipe.jalees_notes && pipe.jalees_notes.toLowerCase().includes(search);
@@ -4353,16 +5330,24 @@
         });
       }
 
+      const eventCounts = new Map();
+      const recentContact = new Map();
+      getStoredHistory().forEach(event => {
+        if (!event || !event.crn) return;
+        eventCounts.set(event.crn, (eventCounts.get(event.crn) || 0) + 1);
+        recentContact.set(event.crn, Math.max(recentContact.get(event.crn) || 0, Number(event.id || 0)));
+      });
+
       companies.sort((a, b) => {
         const aPipe = getCompanyPipeline(a.crn);
         const bPipe = getCompanyPipeline(b.crn);
         if (sortMode === "name_asc") return (a.company_name || "").localeCompare(b.company_name || "");
         if (sortMode === "attempts_desc") return (bPipe.contact_attempts || 0) - (aPipe.contact_attempts || 0) || (a.company_name || "").localeCompare(b.company_name || "");
         if (sortMode === "attempts_asc") return (aPipe.contact_attempts || 0) - (bPipe.contact_attempts || 0) || (a.company_name || "").localeCompare(b.company_name || "");
-        if (sortMode === "recent_contact") return getMostRecentContactTime(b.crn) - getMostRecentContactTime(a.crn);
+        if (sortMode === "recent_contact") return (recentContact.get(b.crn) || 0) - (recentContact.get(a.crn) || 0);
         if (sortMode === "oldest_contact") {
-          const aTime = getMostRecentContactTime(a.crn) || Number.MAX_SAFE_INTEGER;
-          const bTime = getMostRecentContactTime(b.crn) || Number.MAX_SAFE_INTEGER;
+          const aTime = recentContact.get(a.crn) || Number.MAX_SAFE_INTEGER;
+          const bTime = recentContact.get(b.crn) || Number.MAX_SAFE_INTEGER;
           return aTime - bTime;
         }
         if (a.rank && b.rank) return a.rank - b.rank;
@@ -4372,18 +5357,23 @@
       });
 
       if (companies.length === 0) {
-        tbody.innerHTML = "<tr><td colspan=\"8\" style=\"text-align:center; color:var(--text-dim); padding:16px;\">No companies found for the selected filter.</td></tr>";
+        pipelineFilteredCompanies = [];
+        pipelinePageCrns = [];
+        tbody.innerHTML = "<tr><td colspan=\"9\" style=\"text-align:center; color:var(--text-dim); padding:16px;\">No companies found for the selected filters.</td></tr>";
         document.getElementById("pipelineResultsSummary").textContent = "0 companies";
         document.getElementById("pipelinePageSummary").textContent = "Page 0";
         document.getElementById("pipelinePrevPageBtn").disabled = true;
         document.getElementById("pipelineNextPageBtn").disabled = true;
+        updatePipelineBulkCount();
         return;
       }
 
+      pipelineFilteredCompanies = companies.slice();
       const pageCount = Math.max(1, Math.ceil(companies.length / PIPELINE_PAGE_SIZE));
       pipelineWorkspacePage = Math.min(pageCount, Math.max(1, pipelineWorkspacePage));
       const pageStart = (pipelineWorkspacePage - 1) * PIPELINE_PAGE_SIZE;
       const pageCompanies = companies.slice(pageStart, pageStart + PIPELINE_PAGE_SIZE);
+      pipelinePageCrns = pageCompanies.map(company => company.crn);
       document.getElementById("pipelineResultsSummary").textContent = companies.length + " companies · showing " + (pageStart + 1) + "–" + (pageStart + pageCompanies.length);
       document.getElementById("pipelinePageSummary").textContent = "Page " + pipelineWorkspacePage + " of " + pageCount;
       document.getElementById("pipelinePrevPageBtn").disabled = pipelineWorkspacePage <= 1;
@@ -4391,7 +5381,7 @@
       for (let i = 0; i < pageCompanies.length; i++) {
         const c = pageCompanies[i];
         const pipe = getCompanyPipeline(c.crn);
-        const eventCount = getCompanyContactEvents(c.crn).length;
+        const eventCount = eventCounts.get(c.crn) || 0;
         const canEditJaleesNote = currentUser && currentUser.role === "handler";
         const canDeleteCompany = currentUser && currentUser.username === "jalees" && currentUser.role === "handler";
         const jaleesNoteCell = "<div style=\"max-width:220px; white-space:normal; color:#312e81; font-weight:" + (pipe.jalees_notes ? "700" : "500") + ";\">" + escapeHtml(pipe.jalees_notes || "—") + "</div>" +
@@ -4402,7 +5392,8 @@
           ? c.phone_numbers.map(p => "<div style=\"margin-bottom:2px;\"><small style=\"color:var(--text-muted); font-size:9.5px;\">[" + escapeHtml(p.purpose || "Phone") + "]:</small> <a href=\"tel:" + p.number.replace(/\s+/g,"") + "\" style=\"color:var(--text); text-decoration:none; font-weight:700; font-family:monospace, monospace;\">" + escapeHtml(p.number) + "</a></div>").join("")
           : (c.phone ? "<a href=\"tel:" + c.phone.replace(/\s+/g,"") + "\" style=\"color:var(--text); text-decoration:none; font-family:monospace, monospace;\">" + c.phone + "</a>" : "—");
 
-        tr.innerHTML = "<td><strong>" + (pipe.is_pinned ? "📌 " : "") + escapeHtml(c.company_name) + "</strong><br><span class=\"tag crn\" style=\"font-size:9px;\">" + escapeHtml(c.crn) + "</span></td>" +
+        tr.innerHTML = "<td><input type=\"checkbox\" class=\"pipeline-company-checkbox\" data-crn=\"" + c.crn + "\" " + (pipelineSelectedCrns.has(c.crn) ? "checked" : "") + " /></td>" +
+          "<td><strong>" + (pipe.is_pinned ? "📌 " : "") + escapeHtml(c.company_name) + "</strong><br><span class=\"tag crn\" style=\"font-size:9px;\">" + escapeHtml(c.crn) + "</span></td>" +
           "<td>" + phonesHtml + "</td>" +
           "<td><span class=\"tag pipeline-badge pipeline-" + pipe.pipeline_list + "\">" + ((PIPELINE_LISTS[pipe.pipeline_list] || {}).icon || "") + " " + ((PIPELINE_LISTS[pipe.pipeline_list] || {}).label || "") + "</span><br><small style=\"color:var(--text-muted)\">Attempts: " + pipe.contact_attempts + " / " + getUnreachableThreshold() + " · Logs: " + eventCount + "</small></td>" +
           "<td>" + (pipe.last_outcome ? "<span class=\"tag " + (pipe.last_outcome.includes("Booked") || pipe.last_outcome.includes("Agreed") ? "status-qual" : "") + "\">" + escapeHtml(pipe.last_outcome) + "</span>" : "—") + "</td>" +
@@ -4410,7 +5401,7 @@
           "<td>" + jaleesNoteCell + "</td>" +
           "<td>" +
           "<select class=\"quick-select table-list-select\" data-crn=\"" + c.crn + "\" style=\"min-height:26px; padding:2px 6px; font-size:11px;\">" +
-          "<option value=\"all_qualified\" " + (pipe.pipeline_list === "all_qualified" ? "selected" : "") + ">⭐ All Qualified</option>" +
+          (pipe.pipeline_list === "all_qualified" ? "<option value=\"all_qualified\" selected disabled>🎯 Needs ACS (research view)</option>" : "") +
           "<option value=\"todays_targets\" " + (pipe.pipeline_list === "todays_targets" ? "selected" : "") + ">🎯 Today's Targets</option>" +
           "<option value=\"sia_approved_entries\" " + (pipe.pipeline_list === "sia_approved_entries" ? "selected" : "") + ">🎖️ SIA Approved Entries</option>" +
           "<option value=\"contacted\" disabled " + (pipe.pipeline_list === "contacted" ? "selected" : "") + ">📞 Contacted · use Log attempt</option>" +
@@ -4452,6 +5443,13 @@
       document.querySelectorAll(".pin-table-company-btn").forEach(btn => btn.addEventListener("click", event => toggleCompanyPin(event.currentTarget.dataset.crn)));
       document.querySelectorAll(".delete-table-company-btn").forEach(btn => btn.addEventListener("click", event => deleteCompany(event.currentTarget.dataset.crn)));
       document.querySelectorAll(".edit-jalees-note-table-btn").forEach(btn => btn.addEventListener("click", event => openJaleesNotesEditor(event.currentTarget.dataset.crn)));
+      document.querySelectorAll(".pipeline-company-checkbox").forEach(checkbox => checkbox.addEventListener("change", event => {
+        const crn = event.currentTarget.dataset.crn;
+        if (event.currentTarget.checked) pipelineSelectedCrns.add(crn);
+        else pipelineSelectedCrns.delete(crn);
+        updatePipelineBulkCount();
+      }));
+      updatePipelineBulkCount();
     }
 
     pipelineDrawerBtn.addEventListener("click", openPipelineDrawer);
@@ -4460,9 +5458,235 @@
       if (e.target === pipelineDrawerBackdrop) closePipelineDrawer();
     });
     if (pipelineDrawerListFilter) pipelineDrawerListFilter.addEventListener("change", () => { pipelineWorkspacePage = 1; renderPipelineTable(); });
-    if (pipelineTableSearchInput) pipelineTableSearchInput.addEventListener("input", () => { pipelineWorkspacePage = 1; renderPipelineTable(); });
+    let pipelineSearchDebounce = null;
+    if (pipelineTableSearchInput) pipelineTableSearchInput.addEventListener("input", () => {
+      if (pipelineSearchDebounce) clearTimeout(pipelineSearchDebounce);
+      pipelineSearchDebounce = setTimeout(() => { pipelineWorkspacePage = 1; renderPipelineTable(); }, 150);
+    });
     if (pipelineSortSelect) pipelineSortSelect.addEventListener("change", () => { pipelineWorkspacePage = 1; renderPipelineTable(); });
     if (refreshPipelineTableBtn) refreshPipelineTableBtn.addEventListener("click", renderPipelineTable);
+    pipelineFilterControls.forEach(control => control.addEventListener("change", () => { pipelineWorkspacePage = 1; renderPipelineTable(); }));
+    document.getElementById("resetPipelineFiltersBtn").addEventListener("click", () => {
+      pipelineFilterControls.forEach(control => { control.value = "all"; });
+      pipelineTableSearchInput.value = "";
+      pipelineWorkspacePage = 1;
+      renderPipelineTable();
+    });
+    document.getElementById("pipelineSelectPageCheckbox").addEventListener("change", event => {
+      pipelinePageCrns.forEach(crn => {
+        if (event.currentTarget.checked) pipelineSelectedCrns.add(crn);
+        else pipelineSelectedCrns.delete(crn);
+      });
+      renderPipelineTable();
+    });
+    const pipelineExportModal = document.getElementById("pipelineExportModalBackdrop");
+    function getPipelineExportCompanies() {
+      return pipelineSelectedCrns.size
+        ? Array.from(pipelineSelectedCrns).map(crn => database[crn]).filter(Boolean)
+        : pipelineFilteredCompanies;
+    }
+
+    function closePipelineExportModal() {
+      pipelineExportModal.classList.remove("open");
+      document.getElementById("pipelineExportStatus").textContent = "";
+    }
+
+    function downloadLocalBlob(blob, filename) {
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    }
+
+    function crc32Bytes(bytes) {
+      if (!crc32Bytes.table) {
+        crc32Bytes.table = Array.from({ length: 256 }, (_, index) => {
+          let value = index;
+          for (let bit = 0; bit < 8; bit++) value = (value >>> 1) ^ ((value & 1) ? 0xedb88320 : 0);
+          return value >>> 0;
+        });
+      }
+      let crc = 0xffffffff;
+      for (const byte of bytes) crc = (crc >>> 8) ^ crc32Bytes.table[(crc ^ byte) & 0xff];
+      return (crc ^ 0xffffffff) >>> 0;
+    }
+
+    function buildStoredZip(files) {
+      const encoder = new TextEncoder();
+      const localParts = [];
+      const centralParts = [];
+      let localOffset = 0;
+      const now = new Date();
+      const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2);
+      const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+      files.forEach(file => {
+        const nameBytes = encoder.encode(file.name);
+        const dataBytes = typeof file.content === "string" ? encoder.encode(file.content) : file.content;
+        const crc = crc32Bytes(dataBytes);
+        const local = new Uint8Array(30 + nameBytes.length);
+        const localView = new DataView(local.buffer);
+        localView.setUint32(0, 0x04034b50, true);
+        localView.setUint16(4, 20, true);
+        localView.setUint16(6, 0x0800, true);
+        localView.setUint16(8, 0, true);
+        localView.setUint16(10, dosTime, true);
+        localView.setUint16(12, dosDate, true);
+        localView.setUint32(14, crc, true);
+        localView.setUint32(18, dataBytes.length, true);
+        localView.setUint32(22, dataBytes.length, true);
+        localView.setUint16(26, nameBytes.length, true);
+        local.set(nameBytes, 30);
+        localParts.push(local, dataBytes);
+
+        const central = new Uint8Array(46 + nameBytes.length);
+        const centralView = new DataView(central.buffer);
+        centralView.setUint32(0, 0x02014b50, true);
+        centralView.setUint16(4, 20, true);
+        centralView.setUint16(6, 20, true);
+        centralView.setUint16(8, 0x0800, true);
+        centralView.setUint16(10, 0, true);
+        centralView.setUint16(12, dosTime, true);
+        centralView.setUint16(14, dosDate, true);
+        centralView.setUint32(16, crc, true);
+        centralView.setUint32(20, dataBytes.length, true);
+        centralView.setUint32(24, dataBytes.length, true);
+        centralView.setUint16(28, nameBytes.length, true);
+        centralView.setUint32(42, localOffset, true);
+        central.set(nameBytes, 46);
+        centralParts.push(central);
+        localOffset += local.length + dataBytes.length;
+      });
+      const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+      const end = new Uint8Array(22);
+      const endView = new DataView(end.buffer);
+      endView.setUint32(0, 0x06054b50, true);
+      endView.setUint16(8, files.length, true);
+      endView.setUint16(10, files.length, true);
+      endView.setUint32(12, centralSize, true);
+      endView.setUint32(16, localOffset, true);
+      return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
+    }
+
+    const pipelineExportFields = {
+      crn: ["CRN", company => company.crn],
+      company_name: ["Company Name", company => company.company_name],
+      research_status: ["Research Status", company => company.prospect_status],
+      acs_status: ["ACS Approved", company => company.is_sia_acs_approved ? "Yes" : "No"],
+      pipeline_list: ["Pipeline List", company => (PIPELINE_LISTS[getCompanyPipeline(company.crn).pipeline_list] || {}).name || getCompanyPipeline(company.crn).pipeline_list],
+      phones: ["Phone Numbers", company => [company.phone || "", ...(company.phone_numbers || []).map(item => item && item.number || "")].filter(Boolean).join(" | ")],
+      email: ["Email", company => company.email],
+      website: ["Website", company => company.website],
+      address: ["Address", company => company.operational_address || company.registered_address],
+      dossier_status: ["Full Dossier", company => company.has_full_dossier ? "Yes" : "No"],
+      attempts: ["Attempts", company => getCompanyPipeline(company.crn).contact_attempts || 0],
+      last_outcome: ["Last Outcome", company => getCompanyPipeline(company.crn).last_outcome],
+      caller_notes: ["Caller Notes", company => getCompanyPipeline(company.crn).call_notes],
+      jalees_notes: ["Jalees Notes", company => getCompanyPipeline(company.crn).jalees_notes]
+    };
+
+    document.getElementById("exportPipelineCsvBtn").addEventListener("click", () => {
+      const companies = getPipelineExportCompanies();
+      if (!companies.length) {
+        showToast("No filtered companies to export.");
+        return;
+      }
+      document.getElementById("pipelineExportScopeSummary").textContent =
+        (pipelineSelectedCrns.size ? companies.length + " selected companies" : companies.length + " companies in the current filtered result") + ".";
+      pipelineExportModal.classList.add("open");
+    });
+    document.getElementById("closePipelineExportModalBtn").addEventListener("click", closePipelineExportModal);
+    document.getElementById("cancelPipelineExportBtn").addEventListener("click", closePipelineExportModal);
+    pipelineExportModal.addEventListener("click", event => { if (event.target === pipelineExportModal) closePipelineExportModal(); });
+    document.getElementById("runPipelineExportBtn").addEventListener("click", async () => {
+      const companies = getPipelineExportCompanies();
+      const selectedFields = Array.from(document.querySelectorAll(".pipeline-export-field:checked")).map(input => input.value);
+      if (!companies.length || !selectedFields.length) {
+        showToast("Choose at least one company and one CSV field.");
+        return;
+      }
+      const button = document.getElementById("runPipelineExportBtn");
+      const status = document.getElementById("pipelineExportStatus");
+      button.disabled = true;
+      try {
+        const quoteCsv = value => "\"" + String(value == null ? "" : value).replace(/\"/g, "\"\"") + "\"";
+        const headers = selectedFields.map(field => pipelineExportFields[field][0]);
+        const rows = companies.map(company => selectedFields.map(field => quoteCsv(pipelineExportFields[field][1](company))).join(","));
+        const csv = [headers.map(quoteCsv).join(","), ...rows].join("\n");
+        const stem = "esc_pipeline_" + (pipelineDrawerListFilter.value || "all") + "_" + new Date().toISOString().slice(0, 10);
+        if (!document.getElementById("pipelineExportIncludeDossiers").checked) {
+          downloadLocalBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), stem + ".csv");
+        } else {
+          const files = [{ name: stem + ".csv", content: csv }];
+          const researched = companies.filter(company => company.has_full_dossier);
+          for (let start = 0; start < researched.length; start += 6) {
+            status.textContent = "Preparing dossiers " + Math.min(start + 6, researched.length) + " of " + researched.length + "…";
+            const details = await Promise.all(researched.slice(start, start + 6).map(company => fetchCompanyDetails(company.crn)));
+            details.forEach(company => {
+              const safeName = String(company.company_name || company.crn).replace(/[^a-z0-9_-]+/gi, "_").slice(0, 70);
+              const report = company.investigation_report_full || company.investigation_report_preview || company.research_summary || "No written dossier was available.";
+              files.push({ name: "dossiers/" + company.crn + "_" + safeName + ".md", content: "# " + company.company_name + "\n\nCRN: " + company.crn + "\n\n" + report });
+            });
+          }
+          status.textContent = "Building ZIP…";
+          downloadLocalBlob(buildStoredZip(files), stem + "_with_dossiers.zip");
+        }
+        showToast("Prepared export for " + companies.length + " companies.");
+        closePipelineExportModal();
+      } catch (error) {
+        status.textContent = "Export failed: " + (error.message || "unknown error");
+      } finally {
+        button.disabled = false;
+      }
+    });
+    document.getElementById("applyPipelineBulkMoveBtn").addEventListener("click", async () => {
+      if (!currentUser || currentUser.role !== "handler") {
+        showToast("Only Jalees can bulk-move companies.");
+        return;
+      }
+      const target = document.getElementById("pipelineBulkTargetSelect").value;
+      const crns = Array.from(pipelineSelectedCrns).filter(crn => database[crn]);
+      if (!target || !PIPELINE_LISTS[target] || PIPELINE_LISTS[target].virtual) {
+        showToast("Choose a valid destination list.");
+        return;
+      }
+      if (!crns.length) {
+        showToast("Select at least one company first.");
+        return;
+      }
+      if (!confirm("Move " + crns.length + " selected companies to " + PIPELINE_LISTS[target].name + "? A recovery snapshot will be created.")) return;
+      const button = document.getElementById("applyPipelineBulkMoveBtn");
+      button.disabled = true;
+      try {
+        const response = await fetch("/api/pipeline/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ crns, target_list: target })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Bulk move failed.");
+        replaceLocalPipelineState(result.pipeline_state || {});
+        saveStoredHistory(result.call_history || []);
+        lastSharedStateRevision = Math.max(lastSharedStateRevision, result.revision || 0);
+        Object.entries(result.pipeline_state || {}).forEach(([crn, entry]) => {
+          if (database[crn]) Object.assign(database[crn], entry);
+        });
+        pipelineSelectedCrns.clear();
+        document.getElementById("pipelineBulkTargetSelect").value = "";
+        updatePipelineBadges();
+        populateQuickSelectors();
+        updateHistoryBadge();
+        renderPipelineTable();
+        if (typeof fetchSnapshotsListCount === "function") fetchSnapshotsListCount();
+        showToast("Moved " + result.moved_count + " companies to " + PIPELINE_LISTS[target].name + ".");
+      } catch (error) {
+        showToast(error.message || "Bulk move failed.");
+      } finally {
+        button.disabled = false;
+      }
+    });
     document.querySelectorAll(".pipeline-list-tab").forEach(tab => tab.addEventListener("click", event => {
       pipelineDrawerListFilter.value = event.currentTarget.dataset.workspaceList;
       pipelineWorkspacePage = 1;
@@ -4878,8 +6102,7 @@
 
     async function executeClearHistory() {
       clearHistoryModalBackdrop.classList.remove("open");
-      localStorage.removeItem("esc_call_history");
-      localStorage.setItem("esc_call_history", "[]");
+      saveStoredHistory([]);
       localStorage.removeItem(PENDING_SYNC_KEY);
 
       try {
@@ -5176,10 +6399,10 @@
         if (res.ok) {
           const data = await res.json();
           if (data.restored && data.restored.pipeline_state) {
-            localStorage.setItem("esc_pipeline_state_v7", JSON.stringify(data.restored.pipeline_state));
+            replaceLocalPipelineState(data.restored.pipeline_state);
           }
           if (data.restored && data.restored.call_history) {
-            localStorage.setItem("esc_call_history", JSON.stringify(data.restored.call_history));
+            saveStoredHistory(data.restored.call_history);
           }
           if (data.restored && data.restored.settings) applyWorkspaceSettings(data.restored.settings);
 
@@ -5258,8 +6481,8 @@
           if (res.ok) {
             showToast("📥 Snapshot imported successfully!");
             if (restoreImmediately) {
-              if (snapshotJson.pipeline_state) localStorage.setItem("esc_pipeline_state_v7", JSON.stringify(snapshotJson.pipeline_state));
-              if (snapshotJson.call_history) localStorage.setItem("esc_call_history", JSON.stringify(snapshotJson.call_history));
+              if (snapshotJson.pipeline_state) replaceLocalPipelineState(snapshotJson.pipeline_state);
+              if (snapshotJson.call_history) saveStoredHistory(snapshotJson.call_history);
               if (snapshotJson.settings) applyWorkspaceSettings(snapshotJson.settings);
               updatePipelineBadges();
               populateQuickSelectors();
@@ -5313,7 +6536,7 @@
       const comp = currentCompany;
       if (!comp) return;
       const dm = (comp.decision_makers && comp.decision_makers[selectedDmIndex]) || { name: "Director" };
-      const pitch = comp.email_pitch ? comp.email_pitch.replace(/\[Name\]/g, dm.name) : "Subject: SIA ACS Accreditation for " + comp.company_name + "\n\nHi " + dm.name + ",\n\nWe provide turnkey compliance implementation for SIA ACS and COP 119 certification.";
+      const pitch = comp.email_pitch ? modernizeComplianceTerms(comp.email_pitch.replace(/\[Name\]/g, dm.name)) : "Subject: SIA ACS Readiness for " + comp.company_name + "\n\nHi " + dm.name + ",\n\nWe support security providers with SIA ACS readiness and, where relevant, BS 10119 labour-provision controls.";
       navigator.clipboard.writeText(pitch).then(() => {
         showToast("Email pitch copied to clipboard!");
       });
@@ -5347,7 +6570,7 @@
         if (notesDebounceTimer) clearTimeout(notesDebounceTimer);
         notesDebounceTimer = setTimeout(() => {
           flushActiveCompanyEdits();
-        }, 400);
+        }, 1200);
       });
       callNotesArea.addEventListener("blur", () => {
         flushActiveCompanyEdits();
@@ -5361,7 +6584,7 @@
         if (notesDebounceTimer) clearTimeout(notesDebounceTimer);
         notesDebounceTimer = setTimeout(() => {
           flushActiveCompanyEdits();
-        }, 400);
+        }, 1200);
       });
       callOutcomeInput.addEventListener("blur", () => {
         flushActiveCompanyEdits();
@@ -5416,6 +6639,7 @@
         closePipelineDrawer();
         historyModalBackdrop.classList.remove("open");
         handlerSuiteModal.classList.remove("open");
+        closeCloudResearchCentre();
         contactLogModalBackdrop.classList.remove("open");
         closeJaleesNotesEditor();
         closeSnapshotsModal();

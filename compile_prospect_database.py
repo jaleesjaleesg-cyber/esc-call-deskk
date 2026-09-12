@@ -24,8 +24,8 @@ from datetime import datetime
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 ACS_DIR = os.path.join(ROOT_DIR, "final acs system")
-CASES_DIR = os.path.join(ACS_DIR, "output/v9/cases")
-SIA_ACS_CSV = os.path.join(ROOT_DIR, "ALL SIA ACS APPROVED COMPANIES - company_house_numbers.csv.csv")
+CASES_DIR = os.getenv("ESC_V9_CASES_DIR", os.path.join(ACS_DIR, "output/v9/cases"))
+SIA_ACS_CSV = os.getenv("ESC_SIA_ACS_CSV", os.path.join(ROOT_DIR, "ALL SIA ACS APPROVED COMPANIES - company_house_numbers.csv.csv"))
 METADATA_FILE = os.path.join(SCRIPT_DIR, "metadata.json")
 OUTPUT_JSON = os.path.join(SCRIPT_DIR, "companies_intelligence.json")
 OUTPUT_JS = os.path.join(SCRIPT_DIR, "companies_intelligence_data.js")
@@ -389,11 +389,11 @@ def build_call_profile(company_name, prospect_status, primary_verdict, why_buy,
 
     if existing_acs:
         acts_str = f" for {sia_acs_activities}" if sia_acs_activities else ""
-        primary_offer = "COP 119 labour supply assurance, BS 7858 vetting audits, and annual ACS maintenance"
+        primary_offer = "BS 10119 labour-provision readiness, BS 7858 screening controls, and annual ACS maintenance"
         offer_reason = f"leverage existing SIA ACS status{acts_str} to unlock Tier-1 subcontracting and maintain annual audit compliance"
-        discovery_question = "As an SIA Approved Contractor, are you currently certified to COP 119 for labour supply, or preparing for your next annual ACS re-assessment?"
+        discovery_question = "Are you preparing for an ACS re-assessment, and does labour provision under BS 10119 form part of your contracts?"
     elif labour_evidence and any(term in str(target_package or "").lower() for term in ["cop 119", "labour"]):
-        primary_offer = "COP 119 labour-provision controls and BS 7858 screening"
+        primary_offer = "BS 10119 labour-provision controls and BS 7858 screening"
         offer_reason = "support approved labour-supply relationships with traceable screening and operating controls"
     else:
         primary_offer = "SIA ACS readiness and BS 7858 screening controls"
@@ -408,7 +408,7 @@ def build_call_profile(company_name, prospect_status, primary_verdict, why_buy,
     if is_sia_acs_approved:
         hook = (
             f"I called {company_name} because you are an established SIA Approved Contractor in {sector_phrase}. "
-            f"Our focus with accredited firms is unlocking Tier-1 subcontracting via COP 119 / BS 10119 and managing annual ACS re-assessment audits."
+            f"Our focus with accredited firms is BS 10119 labour-provision readiness where relevant and managing annual ACS re-assessment audits."
         )
     else:
         hook = (
@@ -433,7 +433,7 @@ def build_call_profile(company_name, prospect_status, primary_verdict, why_buy,
 
 def extract_word_report_dossiers():
     """Extract all company detailed dossiers from generate_sia_acs_word_report.py"""
-    report_script = os.path.join(ACS_DIR, "generate_sia_acs_word_report.py")
+    report_script = os.getenv("ESC_WORD_REPORT_SCRIPT", os.path.join(ACS_DIR, "generate_sia_acs_word_report.py"))
     if not os.path.exists(report_script):
         return {}
 
@@ -489,7 +489,7 @@ def add_company_dossier(doc, rank, name, crn, tier, score, verdict, address, web
     orig_open = open
     def custom_open(path, *args, **kwargs):
         if "prospects_v9_master.json" in str(path):
-            p = os.path.join(ACS_DIR, "output/v9/prospects_v9_master.json")
+            p = os.getenv("ESC_V9_MASTER_JSON", os.path.join(ACS_DIR, "output/v9/prospects_v9_master.json"))
             if os.path.exists(p):
                 return orig_open(p, *args, **kwargs)
         return orig_open(path, *args, **kwargs)
@@ -645,25 +645,28 @@ def compile_database(quiet=False, write_files=True):
         phone_pitch = dossier.get("phone_pitch")
         email_pitch = dossier.get("email_pitch")
         why_buy = dossier.get("why_buy") or decision.get("rationale") or ""
-        target_package = dossier.get("target_package") or ("COP 119 Labour Provision & ACS Re-assessment Support" if is_sia_acs_approved else "Turnkey SIA ACS & BS 7858 Compliance Package")
+        service_routes = list(decision.get("service_routes") or [])
+        if is_sia_acs_approved and "ACS_NEW" in service_routes:
+            service_routes = ["ACS_MAINTENANCE" if route == "ACS_NEW" else route for route in service_routes]
+        target_package = dossier.get("target_package") or ("BS 10119 Labour Provision & ACS Re-assessment Support" if is_sia_acs_approved else "SIA ACS Readiness & Compliance Support")
         target_package = re.sub(r"\s*\(?£[\d,]+\)?", "", str(target_package)).strip()
         evidence_points = dossier.get("evidence_points") or decision.get("red_flags", [])
 
         if not phone_pitch:
             dm_name = dms[0].get("name") if dms and dms[0].get("name") else "[Name]"
             if is_sia_acs_approved:
-                phone_pitch = f"“Hi {dm_name}, I see {company_name} is already an SIA Approved Contractor. Under SIA rules, tier-1 contractors require COP 119 certification for labour subcontracting. We handle your COP 119 audit and annual ACS re-assessment files so you can expand without compliance bottlenecks. Can I share a quick overview this week?”"
+                phone_pitch = f"“Hi {dm_name}, I see {company_name} is already an SIA Approved Contractor. We support ACS re-assessment and BS 10119 labour-provision controls where those are relevant to your contracts. Can I ask which compliance work is currently taking the most management time?”"
             elif prospect_status == "QUALIFIED":
-                phone_pitch = f"“Hi {dm_name}, I see {company_name} is active in {primary_verdict}. With commercial clients and tenders requiring SIA ACS and COP 119 compliance, we provide a complete turnkey setup so you pass on the first attempt without diverting your operations. Can I share a 10-minute roadmap this Thursday?”"
+                phone_pitch = f"“Hi {dm_name}, I see {company_name} is active in {primary_verdict}. We help security providers prepare for SIA ACS approval and the supporting operational controls. Is ACS something you are working toward, or have you already ruled it out?”"
             else:
-                phone_pitch = f"“Hi {dm_name}, Jalees here from ESC. We work with UK security providers around SIA Approved Contractor Scheme (ACS) and COP 119 labour supply standards. Have you ever looked at becoming an SIA Approved Contractor, or is that not on the agenda?”"
+                phone_pitch = f"“Hi {dm_name}, Jalees here from ESC. We support security providers with SIA ACS and, where labour provision is part of the model, BS 10119. I wanted to check what services {company_name} actually delivers before assuming either is relevant.”"
 
         if not email_pitch:
             dm_name = dms[0].get("name") if dms and dms[0].get("name") else "[Name]"
             if is_sia_acs_approved:
-                email_pitch = f"Subject: COP 119 Labour Supply Certification & ACS Maintenance for {company_name}\nOpening: Hi {dm_name}, As an SIA Approved Contractor, securing COP 119 certification enables {company_name} to supply labour to major national contractors while simplifying annual ACS re-assessment audits."
+                email_pitch = f"Subject: ACS Maintenance and BS 10119 Support for {company_name}\nOpening: Hi {dm_name}, We support approved contractors with ACS re-assessment and, where labour provision is in scope, BS 10119 readiness."
             else:
-                email_pitch = f"Subject: SIA ACS Accreditation & Tender Pre-Qualification for {company_name}\nOpening: Hi {dm_name}, We help growing UK security firms achieve SIA ACS and COP 119 accreditation to unlock commercial and public sector tenders."
+                email_pitch = f"Subject: SIA ACS Readiness for {company_name}\nOpening: Hi {dm_name}, We help UK security firms assess and implement the controls needed for SIA ACS approval."
 
         rank = dossier.get("rank")
         tier = dossier.get("tier")
@@ -685,6 +688,18 @@ def compile_database(quiet=False, write_files=True):
             "crn": crn,
             "company_name": company_name,
             "prospect_status": prospect_status,
+            "decision_basis": decision.get("decision_basis", "LEGACY_RESULT"),
+            "review_owner": decision.get("review_owner", "HUMAN" if prospect_status == "NEEDS_REVIEW" else "NONE"),
+            "activity_classifications": decision.get("activity_classifications", ["UNKNOWN"]),
+            "service_routes": service_routes,
+            "service_route": decision.get("service_route") or (service_routes[0] if service_routes else "NONE"),
+            "reachability": decision.get("reachability", {
+                "has_phone": bool(phone), "has_email": bool(email),
+                "has_social": bool(social_profiles), "has_website": bool(website),
+                "contactable": bool(phone or email or website or social_profiles)
+            }),
+            "website_opportunity": decision.get("website_opportunity", bool(not website and (phone or email or social_profiles))),
+            "evidence_search_exhausted": decision.get("evidence_search_exhausted", False),
             "is_sia_acs_approved": is_sia_acs_approved,
             "sia_acs_activities": sia_acs_activities,
             "sia_acs_directors": sia_acs_directors,
@@ -789,7 +804,7 @@ def compile_database(quiet=False, write_files=True):
             c["tier"] = f"Tier 4 · Qualified Lead (#{i})"
 
     # 4. Add registry entries for broad search
-    registry_file = os.path.join(ACS_DIR, "prospect_sources/master_registry/master_all_companies.json")
+    registry_file = os.getenv("ESC_V9_REGISTRY_FILE", os.path.join(ACS_DIR, "prospect_sources/master_registry/master_all_companies.json"))
     registry_count = 0
     if os.path.exists(registry_file):
         try:
@@ -805,16 +820,28 @@ def compile_database(quiet=False, write_files=True):
                         reg_address = item.get("address_snippet") or item.get("registered_address") or ""
                         reg_inc = item.get("date_of_creation", "")
 
+                        reg_sia = sia_acs_registry.get(reg_crn) or sia_acs_registry.get(reg_crn.zfill(8) if reg_crn.isdigit() else reg_crn)
                         compiled_companies[reg_crn] = {
                             "crn": reg_crn,
                             "company_name": reg_name,
                             "prospect_status": "REGISTRY_PROSPECT",
                             "rank": None,
                             "tier": "Registry Database (SIC 80100)",
-                            "deterministic_score": 50,
-                            "primary_service_verdict": "Security Services (SIC 80100)",
-                            "is_physical_guarding": True,
-                            "confidence_score": 0.8,
+                            "deterministic_score": 10,
+                            "primary_service_verdict": "Unknown — research required",
+                            "is_physical_guarding": None,
+                            "confidence_score": 0.0,
+                            "decision_basis": "EVIDENCE_INCOMPLETE",
+                            "review_owner": "RESEARCH_RETRY",
+                            "activity_classifications": ["UNKNOWN"],
+                            "service_routes": [],
+                            "service_route": "NONE",
+                            "reachability": {"has_phone": False, "has_email": False, "has_social": False, "has_website": False, "contactable": False, "channels": []},
+                            "website_opportunity": False,
+                            "evidence_search_exhausted": False,
+                            "is_sia_acs_approved": bool(reg_sia),
+                            "sia_acs_registered_name": reg_sia.get("name", "") if reg_sia else "",
+                            "sia_acs_activities": reg_sia.get("activities", "") if reg_sia else "",
                             "score_breakdown": {"active_companies_house": 10},
                             "red_flags": [],
                             "rationale": f"Statutory security provider registered under SIC 80100 (Incorporated: {reg_inc}).",
@@ -828,10 +855,10 @@ def compile_database(quiet=False, write_files=True):
                                 {"name": "Director", "role": "Director", "phone": None, "email": None, "linkedin_url": None}
                             ],
                             "statutory_directors": ["Director"],
-                            "why_buy": f"{reg_name} is registered under UK SIC 80100 (Security Services). Achieving SIA ACS accreditation enables bidding on commercial security frameworks.",
-                            "target_package": "Turnkey SIA ACS Implementation Package",
-                            "phone_pitch": f"“Hi Director, I see {reg_name} is operating in private security. We help security providers achieve SIA Approved Contractor Scheme (ACS) status and COP 119 labour supply certification without the administrative headache. Have you ever looked into getting ACS accredited?”",
-                            "email_pitch": f"Subject: SIA ACS Accreditation for {reg_name}\nOpening: Hi Director, We provide end-to-end consulting to help UK security firms achieve SIA ACS certification.",
+                            "why_buy": "No commercial fit has been established. This statutory record must be researched before outreach.",
+                            "target_package": "Research required before selecting an offer",
+                            "phone_pitch": "",
+                            "email_pitch": "",
                             "evidence_points": [
                                 f"Active UK Companies House registration: {reg_crn}",
                                 f"Incorporation date: {reg_inc}",
@@ -1045,8 +1072,8 @@ def compile_database(quiet=False, write_files=True):
             ],
             "statutory_directors": ["Managing Director"],
             "why_buy": "Mountain Security Service operates manned guarding. Reached and requested proposal roadmap over WhatsApp.",
-            "target_package": "Turnkey SIA ACS & COP 119 Compliance Package",
-            "phone_pitch": "“Hi Managing Director, we help growing security providers implement turnkey SIA ACS and COP 119 compliance frameworks. Can I share a roadmap via WhatsApp?”",
+            "target_package": "SIA ACS & BS 10119 Compliance Support",
+            "phone_pitch": "“Hi Managing Director, we help growing security providers prepare for SIA ACS and, where relevant, BS 10119 labour-provision requirements. Can I share a roadmap via WhatsApp?”",
             "email_pitch": "Subject: Security Compliance & Accreditation Roadmap\n\nHi Managing Director, We assist international and regional security firms in setting up standard operating procedures and compliance frameworks.",
             "evidence_points": [
                 "Active commercial website: mountainguard.xyz",
@@ -1085,8 +1112,8 @@ def compile_database(quiet=False, write_files=True):
             ],
             "statutory_directors": ["Director Operations"],
             "why_buy": "One Security Limited provides frontline guarding. Reached and requested compliance roadmap over WhatsApp.",
-            "target_package": "Turnkey SIA ACS & COP 119 Compliance Package",
-            "phone_pitch": "“Hi Director, we help growing security providers implement turnkey SIA ACS and COP 119 compliance frameworks. Can I share a roadmap via WhatsApp?”",
+            "target_package": "SIA ACS & BS 10119 Compliance Support",
+            "phone_pitch": "“Hi Director, we help growing security providers prepare for SIA ACS and, where relevant, BS 10119 labour-provision requirements. Can I share a roadmap via WhatsApp?”",
             "email_pitch": "Subject: Security Compliance & Standard Operating Procedures\n\nHi Director, We assist growing security firms with standard operating procedures and compliance accreditations.",
             "evidence_points": [
                 "Active commercial website: oss.com.pk",

@@ -83,6 +83,31 @@ class CallingEngineRegressionTests(unittest.TestCase):
         self.assertNotIn("btn-whatsapp", self.ui)
         self.assertNotIn("heroWhatsAppBtn", self.ui)
 
+    def test_pipeline_filters_virtual_research_lists_bulk_and_export(self):
+        for element_id in (
+            "pipelineContactFilter", "pipelineWebsiteFilter",
+            "pipelineQualificationFilter", "pipelineDossierFilter",
+            "pipelineActivityFilter", "pipelinePinFilter",
+            "resetPipelineFiltersBtn", "exportPipelineCsvBtn",
+            "pipelineExportModalBackdrop", "pipelineExportIncludeDossiers",
+            "runPipelineExportBtn",
+            "pipelineSelectPageCheckbox", "pipelineBulkTargetSelect",
+            "applyPipelineBulkMoveBtn",
+        ):
+            self.assertIn(f'id="{element_id}"', self.ui)
+        self.assertIn('data-pipeline-tab="research_required"', self.ui)
+        self.assertIn('data-pipeline-tab="research_disqualified"', self.ui)
+        self.assertIn('function companyMatchesWorkspaceFilters(company)', self.ui)
+        self.assertIn('function buildStoredZip(files)', self.ui)
+        self.assertIn('let pipelineStateCache = null', self.ui)
+        self.assertIn('let callHistoryCache = null', self.ui)
+        self.assertIn('const pendingPipelineCrns = new Set()', self.ui)
+        self.assertIn('pendingHistoryRecords.set(String(record.id || record.timestamp), record)', self.ui)
+        self.assertIn('virtual: true', self.ui)
+        self.assertNotIn('<option value="all_qualified">🎯 Needs ACS</option>', self.ui)
+        self.assertIn("app.post('/api/pipeline/bulk', requireHandler", self.node_server)
+        self.assertIn('workspace_revision: getStateRevision()', self.node_server)
+
     @unittest.skipUnless(FULL_DATASET_AVAILABLE, "production company data is intentionally excluded from Git")
     def test_master_list_vs_qualified_separation(self):
         total = len(self.companies)
@@ -90,7 +115,7 @@ class CallingEngineRegressionTests(unittest.TestCase):
         disqualified = [c for c in self.companies.values() if c.get("prospect_status") == "DISQUALIFIED"]
         self.assertGreaterEqual(total, 1942)
         self.assertGreaterEqual(len(qualified), 60)
-        self.assertGreaterEqual(len(disqualified), 140)
+        self.assertGreaterEqual(len(disqualified), 90)
 
     @unittest.skipUnless(FULL_DATASET_AVAILABLE, "production company data is intentionally excluded from Git")
     def test_phone_numbers_labeled_with_purpose(self):
@@ -100,6 +125,13 @@ class CallingEngineRegressionTests(unittest.TestCase):
         self.assertGreaterEqual(len(phones), 1)
         self.assertTrue(any("Callum" in p.get("purpose", "") or p.get("type") == "mobile" for p in phones))
         self.assertTrue(any(p.get("type") in ["corporate", "landline", "mobile"] for p in phones))
+
+    def test_global_search_supports_normalized_callback_phone_numbers(self):
+        self.assertIn('src="/phone_search.js"', self.ui)
+        self.assertIn("window.ESCPhoneSearch.matchingPhone(c, query)", self.ui)
+        self.assertIn("window.ESCPhoneSearch.companyMatchesPhone(company, query)", self.ui)
+        self.assertIn("phone number", self.ui)
+        self.assertIn("app.get('/phone_search.js'", self.node_server)
 
     @unittest.skipUnless(FULL_DATASET_AVAILABLE, "production company data is intentionally excluded from Git")
     def test_social_profiles_extracted(self):

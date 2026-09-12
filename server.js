@@ -4,8 +4,12 @@ const path = require('path');
 const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
 const { PersistentStore } = require('./persistent_store');
+const { CloudResearchBridge } = require('./cloud_research_bridge');
+const phoneSearch = require('./phone_search');
 
 const app = express();
+const autoCommitRuns = new Map();
+
 // Hostinger routes Node.js Web Apps to port 3000 when it does not inject PORT.
 // Preserve platform overrides while using the required production fallback.
 const PORT = Number(process.env.PORT) || 3000;
@@ -28,6 +32,14 @@ if (!fs.existsSync(SNAPSHOTS_DIR)) {
 }
 
 const persistentStore = new PersistentStore({ dataDir: DATA_DIR, snapshotsDir: SNAPSHOTS_DIR });
+const cloudResearchBridge = new CloudResearchBridge({
+  baseUrl: process.env.ESC_RESEARCH_CONTROL_URL,
+  secret: process.env.ESC_RESEARCH_BRIDGE_SECRET,
+  timeoutMs: Number(process.env.ESC_RESEARCH_BRIDGE_TIMEOUT_MS || 15000),
+  // Production is HTTPS-only. This narrow localhost exception exists solely
+  // so the offline integration suite can exercise the signed bridge.
+  allowInsecureHttp: process.env.NODE_ENV === 'test' && process.env.ESC_RESEARCH_ALLOW_HTTP === '1'
+});
 
 // Global settings & auth
 const DEFAULT_WORKSPACE_SETTINGS = { unreachable_after_attempts: 2 };
@@ -39,6 +51,11 @@ const LOGIN_MAX_ATTEMPTS = 8;
 const RESEARCH_IMPORT_SCHEMA = 'esc-research-import/v1';
 const MAX_RESEARCH_IMPORT_COMPANIES = 500;
 const IMPORTABLE_RESEARCH_STATUSES = new Set(['QUALIFIED', 'DISQUALIFIED', 'NEEDS_REVIEW']);
+const ASSIGNMENT_SOURCES = new Set(['qualified', 'human_review', 'website', 'contactable']);
+const BULK_PIPELINE_TARGETS = new Set([
+  'todays_targets', 'sia_approved_entries', 'reached',
+  'unreachable', 'off_our_list', 'permanently_off_our_list', 'master_list'
+]);
 const RUNTIME_COMPANY_FIELDS = new Set([
   'pipeline_list',
   'contact_attempts',
@@ -56,7 +73,15 @@ const RUNTIME_COMPANY_FIELDS = new Set([
   'pin_updated_at',
   'jalees_notes',
   'jalees_notes_updated_at',
-  'jalees_notes_updated_by'
+  'jalees_notes_updated_by',
+  'assigned_to',
+  'assigned_username',
+  'assignment_status',
+  'assigned_at',
+  'assigned_by',
+  'assignment_batch_id',
+  'assignment_note',
+  'assignment_updated_at'
 ]);
 const COMPANY_INDEX_FIELDS = [
   'crn',
@@ -93,6 +118,21 @@ const COMPANY_INDEX_FIELDS = [
   'registered_address',
   'operational_address',
   'decision_makers'
+  ,'decision_basis'
+  ,'review_owner'
+  ,'activity_classifications'
+  ,'service_routes'
+  ,'service_route'
+  ,'reachability'
+  ,'website_opportunity'
+  ,'evidence_search_exhausted'
+  ,'research_batch_id'
+  ,'research_imported_at'
+  ,'research_imported_by'
+  ,'assigned_to'
+  ,'assigned_username'
+  ,'assignment_status'
+  ,'assignment_batch_id'
 ];
 
 if (!ALLOW_INSECURE_DEV_PASSWORDS && (!process.env.ESC_AROOSA_PASSWORD || !process.env.ESC_JALEES_PASSWORDS)) {
@@ -295,7 +335,11 @@ function mergePipelineEntriesByRevision(diskEntry = {}, incomingEntry = {}) {
   const groups = [
     ['pipeline_updated_at', null, ['pipeline_list', 'contact_attempts', 'last_phone_used', 'last_dm_reached']],
     ['notes_updated_at', null, ['call_notes', 'last_outcome']],
-    ['pin_updated_at', 'pinned_at', ['is_pinned', 'pinned_at', 'pinned_by']]
+    ['pin_updated_at', 'pinned_at', ['is_pinned', 'pinned_at', 'pinned_by']],
+    ['assignment_updated_at', 'assigned_at', [
+      'assigned_to', 'assigned_username', 'assignment_status', 'assigned_at',
+      'assigned_by', 'assignment_batch_id', 'assignment_note'
+    ]]
   ];
 
   for (const [revisionField, fallbackField, fields] of groups) {
@@ -309,6 +353,94 @@ function mergePipelineEntriesByRevision(diskEntry = {}, incomingEntry = {}) {
   }
   merged.last_updated = Math.max(diskLast, incomingLast);
   return merged;
+}
+
+function companyIsContactable(company = {}) {
+  if (company.reachability && typeof company.reachability === 'object') {
+    return company.reachability.contactable === true;
+  }
+  const socials = company.social_profiles && typeof company.social_profiles === 'object'
+    ? Object.values(company.social_profiles).some(Boolean)
+    : false;
+  return Boolean(company.phone || company.email || company.website || socials ||
+    (Array.isArray(company.phone_numbers) && company.phone_numbers.length));
+}
+
+function companyHasWebsiteOpportunity(company = {}) {
+  if (company.website_opportunity === true) return true;
+  const hasWebsite = Boolean(company.website || (company.reachability && company.reachability.has_website));
+  return !hasWebsite && companyIsContactable(company);
+}
+
+function companyServiceRoute(company = {}) {
+  let route = company.service_route && company.service_route !== 'NONE'
+    ? company.service_route
+    : (company.is_sia_acs_approved ? 'ACS_MAINTENANCE' : (company.prospect_status === 'QUALIFIED' ? 'ACS_NEW' : 'NONE'));
+  if (companyHasWebsiteOpportunity(company)) {
+    route = route === 'NONE' ? 'WEBSITE' : 'DUAL';
+  }
+  return route;
+}
+
+function companyMatchesAssignmentSource(company, source) {
+  if (source === 'qualified') return company.prospect_status === 'QUALIFIED';
+  if (source === 'human_review') return company.prospect_status === 'NEEDS_REVIEW' && company.review_owner !== 'RESEARCH_RETRY';
+  if (source === 'website') return companyHasWebsiteOpportunity(company);
+  return companyIsContactable(company) && ['QUALIFIED', 'NEEDS_REVIEW'].includes(company.prospect_status);
+}
+
+function getAssignableCompanies(companies, pipeline, source, specificCrns = []) {
+  const specific = new Set(specificCrns);
+  return Object.values(companies)
+    .filter(company => company && typeof company === 'object')
+    .filter(company => !specific.size || specific.has(String(company.crn || '').toUpperCase()))
+    .filter(company => companyMatchesAssignmentSource(company, source))
+    .filter(company => {
+      const state = pipeline[company.crn] || {};
+      const operationalList = state.pipeline_list || company.pipeline_list || 'all_qualified';
+      if (['contacted', 'reached', 'unreachable', 'off_our_list', 'permanently_off_our_list'].includes(operationalList)) return false;
+      return !state.assigned_username || !['assigned', 'in_progress'].includes(state.assignment_status);
+    })
+    .sort((a, b) => {
+      const aRank = Number(a.rank || Number.MAX_SAFE_INTEGER);
+      const bRank = Number(b.rank || Number.MAX_SAFE_INTEGER);
+      if (aRank !== bRank) return aRank - bRank;
+      return Number(b.deterministic_score || 0) - Number(a.deterministic_score || 0);
+    });
+}
+
+function computeHandlerAnalytics(companies, pipeline, history) {
+  const callers = Object.entries(AUTH_USERS)
+    .filter(([, user]) => user.role === 'caller')
+    .map(([username, user]) => ({ username, name: user.name }));
+  const rows = callers.map(caller => {
+    const assignments = Object.entries(pipeline).filter(([, state]) => state && state.assigned_username === caller.username);
+    const assignedCrns = new Set(assignments.map(([crn]) => crn));
+    const calls = (history || []).filter(item => String(item.caller || '').toLowerCase() === caller.name.toLowerCase());
+    const attemptedCrns = new Set(calls.filter(item => item.event_type === 'contact_attempt' || Number(item.attempt_number || 0) > 0).map(item => item.crn));
+    const reachedCrns = new Set(assignments.filter(([, state]) => state.pipeline_list === 'reached').map(([crn]) => crn));
+    return {
+      ...caller,
+      assigned: assignedCrns.size,
+      open: assignments.filter(([, state]) => ['assigned', 'in_progress'].includes(state.assignment_status)).length,
+      attempted: Array.from(attemptedCrns).filter(crn => assignedCrns.has(crn)).length,
+      reached: reachedCrns.size,
+      conversion_rate: assignedCrns.size ? Math.round((reachedCrns.size / assignedCrns.size) * 1000) / 10 : 0,
+    };
+  });
+  const values = Object.values(companies);
+  return {
+    generated_at: new Date().toISOString(),
+    callers: rows,
+    inventory: {
+      qualified_unassigned: getAssignableCompanies(companies, pipeline, 'qualified').length,
+      human_review_unassigned: getAssignableCompanies(companies, pipeline, 'human_review').length,
+      website_unassigned: getAssignableCompanies(companies, pipeline, 'website').length,
+      active_assignments: Object.values(pipeline).filter(state => state && ['assigned', 'in_progress'].includes(state.assignment_status)).length,
+      researched: values.filter(company => company.has_full_dossier === true).length,
+      total_companies: values.length,
+    },
+  };
 }
 
 function computeSnapshotStats(pipelineState, callHistory, totalCompaniesCount = 0) {
@@ -395,8 +527,12 @@ function createSnapshot({
   const history = custom_history !== null ? custom_history : loadJsonSafe(CALL_HISTORY_FILE, []);
   const settings = normalizeWorkspaceSettings(custom_settings !== null ? custom_settings : loadWorkspaceSettings());
   const includeCompanies = include_company_database || custom_companies !== null;
-  const companies = custom_companies !== null ? custom_companies : loadJsonSafe(OUTPUT_JSON, {});
-  const companyMetadata = custom_metadata !== null ? custom_metadata : loadJsonSafe(METADATA_FILE, {});
+  const companies = includeCompanies
+    ? (custom_companies !== null ? custom_companies : loadJsonSafe(OUTPUT_JSON, {}))
+    : null;
+  const companyMetadata = includeCompanies
+    ? (custom_metadata !== null ? custom_metadata : loadJsonSafe(METADATA_FILE, {}))
+    : null;
 
   const nowTs = Date.now();
   const dateStr = new Date(nowTs).toISOString().replace('T', ' ').substring(0, 19);
@@ -867,7 +1003,7 @@ app.get('/api/status', (req, res) => {
     total_prospects: 0,
     last_updated: Math.floor(Date.now() / 1000)
   });
-  res.json({ ...meta, persistence: persistentStore.status() });
+  res.json({ ...meta, workspace_revision: getStateRevision(), persistence: persistentStore.status() });
 });
 
 app.get('/api/companies', (req, res) => {
@@ -885,6 +1021,61 @@ app.get('/api/company-index', (req, res) => {
   }
   res.json(getVisibleCompanyIndex());
 });
+
+app.get('/api/companies/search', (req, res) => {
+  if (!fs.existsSync(OUTPUT_JSON)) {
+    return res.status(404).json({ error: 'Database not compiled' });
+  }
+  const query = String(req.query.q || req.query.phone || '').trim();
+  if (!query) {
+    return res.json({ query: '', count: 0, results: [] });
+  }
+  const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 25));
+  const companies = getVisibleCompanies();
+
+  // Search by mobile or landline phone
+  const phoneMatches = phoneSearch.searchCompaniesByPhone(companies, query, limit);
+  if (phoneMatches.length > 0) {
+    return res.json({
+      query,
+      type: 'phone',
+      count: phoneMatches.length,
+      results: phoneMatches.map(({ company, match }) => ({
+        crn: company.crn,
+        company_name: company.company_name,
+        matched_phone: match.number,
+        is_mobile: match.isMobile,
+        phone_purpose: match.purpose,
+        dm_name: match.dmName,
+        dm_role: match.dmRole,
+        pipeline_list: company.pipeline_list || 'all_qualified'
+      }))
+    });
+  }
+
+  // Fallback to name/crn search
+  const lowerQuery = query.toLowerCase();
+  const textMatches = [];
+  for (const [crn, company] of Object.entries(companies)) {
+    if (crn.toLowerCase().includes(lowerQuery) || (company.company_name && company.company_name.toLowerCase().includes(lowerQuery))) {
+      textMatches.push({
+        crn: company.crn,
+        company_name: company.company_name,
+        matched_phone: company.phone || '',
+        pipeline_list: company.pipeline_list || 'all_qualified'
+      });
+      if (textMatches.length >= limit) break;
+    }
+  }
+
+  res.json({
+    query,
+    type: 'text',
+    count: textMatches.length,
+    results: textMatches
+  });
+});
+
 
 app.get('/api/company/:crn', (req, res) => {
   const crn = String(req.params.crn || '').trim().toUpperCase();
@@ -936,6 +1127,191 @@ app.post('/api/state', async (req, res) => {
     revision,
     settings,
     stats
+  });
+});
+
+app.get('/api/callers', requireHandler, (req, res) => {
+  const callers = Object.entries(AUTH_USERS)
+    .filter(([, user]) => user.role === 'caller')
+    .map(([username, user]) => ({ username, name: user.name, role: user.role }));
+  res.json({ status: 'ok', callers });
+});
+
+app.get('/api/handler/analytics', requireHandler, (req, res) => {
+  const companies = getVisibleCompanies();
+  const pipeline = loadJsonSafe(PIPELINE_STATE_FILE, {});
+  const history = loadJsonSafe(CALL_HISTORY_FILE, []);
+  res.json({ status: 'ok', analytics: computeHandlerAnalytics(companies, pipeline, history) });
+});
+
+app.post('/api/assignments', requireHandler, async (req, res) => {
+  const body = req.body || {};
+  const callerUsername = String(body.caller_username || '').trim().toLowerCase();
+  const caller = AUTH_USERS[callerUsername];
+  const source = String(body.source || 'qualified').trim().toLowerCase();
+  const count = Math.min(500, Math.max(1, Number.parseInt(body.count, 10) || 25));
+  const previewOnly = body.preview_only === true;
+  const specificCrns = Array.isArray(body.crns)
+    ? Array.from(new Set(body.crns.map(value => String(value || '').trim().toUpperCase()).filter(Boolean)))
+    : [];
+
+  if (!caller || caller.role !== 'caller') {
+    return res.status(400).json({ error: 'Choose a configured caller account.' });
+  }
+  if (!ASSIGNMENT_SOURCES.has(source)) {
+    return res.status(400).json({ error: 'Choose a valid assignment source.' });
+  }
+  if (specificCrns.length > 500) {
+    return res.status(400).json({ error: 'A single assignment batch cannot exceed 500 companies.' });
+  }
+
+  const companies = getVisibleCompanies();
+  const pipeline = loadJsonSafe(PIPELINE_STATE_FILE, {});
+  const history = loadJsonSafe(CALL_HISTORY_FILE, []);
+  const eligible = getAssignableCompanies(companies, pipeline, source, specificCrns).slice(0, count);
+  const publicCompanies = eligible.map(company => ({
+    crn: company.crn,
+    company_name: company.company_name,
+    rank: company.rank || null,
+    deterministic_score: company.deterministic_score || 0,
+    prospect_status: company.prospect_status,
+    service_route: companyServiceRoute(company),
+    website_opportunity: companyHasWebsiteOpportunity(company),
+  }));
+
+  if (previewOnly) {
+    return res.json({
+      status: 'preview', caller: { username: callerUsername, name: caller.name }, source,
+      requested_count: count, eligible_count: eligible.length, companies: publicCompanies,
+    });
+  }
+  if (!eligible.length) return res.status(400).json({ error: 'No unassigned companies match this cohort.' });
+
+  const assignedAt = Date.now();
+  const batchId = `assignment-${assignedAt}-${callerUsername}`;
+  const recoverySnapshot = createSnapshot({
+    name: `Before assigning ${eligible.length} companies to ${caller.name}`,
+    notes: `Recovery point before ${req.authUser.name} created ${batchId}.`,
+    created_by: req.authUser.name,
+    snap_type: 'pre_assignment',
+    custom_state: pipeline,
+    custom_history: history,
+  });
+
+  eligible.forEach((company, index) => {
+    const existing = pipeline[company.crn] && typeof pipeline[company.crn] === 'object' ? pipeline[company.crn] : {};
+    pipeline[company.crn] = {
+      ...existing,
+      pipeline_list: existing.pipeline_list || company.pipeline_list || 'all_qualified',
+      assigned_to: caller.name,
+      assigned_username: callerUsername,
+      assignment_status: 'assigned',
+      assigned_at: assignedAt,
+      assigned_by: req.authUser.name,
+      assignment_batch_id: batchId,
+      assignment_note: String(body.note || '').trim().slice(0, 500),
+      assignment_updated_at: assignedAt,
+      last_updated: Math.max(Number(existing.last_updated || 0), assignedAt),
+    };
+    history.unshift({
+      id: assignedAt + index,
+      timestamp: new Date(assignedAt).toLocaleString('en-GB'),
+      isoDate: new Date(assignedAt).toISOString().slice(0, 10),
+      caller: req.authUser.name,
+      assigned_to: caller.name,
+      crn: company.crn,
+      company_name: company.company_name || company.crn,
+      transition: existing.pipeline_list || company.pipeline_list || 'all_qualified',
+      outcome: `Assigned to ${caller.name}`,
+      notes: String(body.note || '').trim(),
+      list: existing.pipeline_list || company.pipeline_list || 'all_qualified',
+      event_type: 'assignment',
+      assignment_batch_id: batchId,
+      attempt_number: Number(existing.contact_attempts || 0),
+    });
+  });
+
+  saveJsonAtomic(PIPELINE_STATE_FILE, pipeline);
+  saveJsonAtomic(CALL_HISTORY_FILE, history);
+  if (!await flushPersistenceOrFail(res)) return;
+  res.json({
+    status: 'assigned', batch_id: batchId, assigned_count: eligible.length,
+    caller: { username: callerUsername, name: caller.name }, source,
+    companies: publicCompanies, recovery_snapshot: recoverySnapshot,
+    pipeline_state: pipeline, call_history: history, revision: getStateRevision(),
+  });
+});
+
+app.post('/api/pipeline/bulk', requireHandler, async (req, res) => {
+  const targetList = String((req.body && req.body.target_list) || '').trim();
+  const requestedCrns = Array.isArray(req.body && req.body.crns) ? req.body.crns : [];
+  const crns = Array.from(new Set(requestedCrns
+    .map(value => String(value || '').trim().toUpperCase())
+    .filter(value => /^[A-Z0-9]{4,12}$/.test(value))));
+
+  if (!BULK_PIPELINE_TARGETS.has(targetList)) {
+    return res.status(400).json({ error: 'Invalid bulk destination list.' });
+  }
+  if (!crns.length || crns.length > 2500) {
+    return res.status(400).json({ error: 'Choose between 1 and 2500 valid companies.' });
+  }
+
+  const companies = getVisibleCompanies();
+  const pipeline = loadJsonSafe(PIPELINE_STATE_FILE, {});
+  const history = loadJsonSafe(CALL_HISTORY_FILE, []);
+  const accepted = crns.filter(crn => companies[crn]);
+  const rejected = crns.filter(crn => !companies[crn]);
+  if (!accepted.length) return res.status(404).json({ error: 'None of the selected companies exist.' });
+
+  const recoverySnapshot = createSnapshot({
+    name: `Before bulk move of ${accepted.length} companies`,
+    notes: `Recovery point before ${req.authUser.name} moved companies to ${targetList}.`,
+    created_by: req.authUser.name,
+    snap_type: 'pre_bulk_move',
+    custom_state: pipeline,
+    custom_history: history
+  });
+
+  const movedAt = Date.now();
+  accepted.forEach((crn, index) => {
+    const existing = pipeline[crn] && typeof pipeline[crn] === 'object' ? pipeline[crn] : {};
+    pipeline[crn] = {
+      ...existing,
+      pipeline_list: targetList,
+      pipeline_updated_at: movedAt,
+      last_updated: Math.max(Number(existing.last_updated || 0), movedAt),
+      last_caller: req.authUser.name
+    };
+    history.unshift({
+      id: movedAt + index,
+      timestamp: new Date(movedAt).toLocaleString('en-GB'),
+      isoDate: new Date(movedAt).toISOString().slice(0, 10),
+      caller: req.authUser.name,
+      crn,
+      company_name: companies[crn].company_name || crn,
+      decision_maker: '—',
+      phone_used: '—',
+      transition: targetList,
+      outcome: `Bulk moved to ${targetList}`,
+      notes: `Bulk action by ${req.authUser.name}`,
+      list: targetList,
+      event_type: 'bulk_move',
+      attempt_number: Number(existing.contact_attempts || 0)
+    });
+  });
+
+  saveJsonAtomic(PIPELINE_STATE_FILE, pipeline);
+  saveJsonAtomic(CALL_HISTORY_FILE, history);
+  if (!await flushPersistenceOrFail(res)) return;
+  res.json({
+    status: 'ok',
+    moved_count: accepted.length,
+    rejected_crns: rejected,
+    target_list: targetList,
+    recovery_snapshot: recoverySnapshot,
+    pipeline_state: pipeline,
+    call_history: history,
+    revision: getStateRevision()
   });
 });
 
@@ -1147,15 +1523,18 @@ app.post('/api/research-import/preview', requireHandler, (req, res) => {
   res.json(preview);
 });
 
-app.post('/api/research-import/commit', requireHandler, async (req, res) => {
-  const artifact = req.body && (req.body.artifact || req.body);
+async function commitResearchImportArtifact(artifact, authUser) {
   const validation = validateResearchImportArtifact(artifact);
-  if (validation.fatal_error) return res.status(400).json({ error: validation.fatal_error });
+  if (validation.fatal_error) {
+    const error = new Error(validation.fatal_error);
+    error.statusCode = 400;
+    throw error;
+  }
   if (validation.accepted.length === 0) {
-    return res.status(400).json({
-      error: 'This import contains no acceptable completed research dossiers.',
-      preview: publicResearchImportPreview(validation)
-    });
+    const error = new Error('This import contains no acceptable completed research dossiers.');
+    error.statusCode = 400;
+    error.preview = publicResearchImportPreview(validation);
+    throw error;
   }
 
   const currentCompanies = loadJsonSafe(OUTPUT_JSON, {});
@@ -1163,7 +1542,7 @@ app.post('/api/research-import/commit', requireHandler, async (req, res) => {
   const recoverySnapshot = createSnapshot({
     name: `Before research import ${validation.batch_id}`,
     notes: `Automatic recovery point before Jalees imported ${validation.accepted.length} researched companies.`,
-    created_by: req.authUser.name,
+    created_by: authUser.name,
     snap_type: 'pre_research_import',
     custom_companies: currentCompanies,
     custom_metadata: currentMetadata,
@@ -1185,7 +1564,10 @@ app.post('/api/research-import/commit', requireHandler, async (req, res) => {
       ...existing,
       ...item.company,
       ...preservedRuntime,
-      crn: item.crn
+      crn: item.crn,
+      research_batch_id: validation.batch_id,
+      research_imported_at: new Date().toISOString(),
+      research_imported_by: authUser.name
     };
   }
 
@@ -1205,7 +1587,7 @@ app.post('/api/research-import/commit', requireHandler, async (req, res) => {
     last_import: {
       batch_id: validation.batch_id,
       imported_at: new Date(now).toISOString(),
-      imported_by: req.authUser.name,
+      imported_by: authUser.name,
       accepted_count: validation.accepted.length,
       new_count: validation.new_count,
       update_count: validation.update_count,
@@ -1215,15 +1597,173 @@ app.post('/api/research-import/commit', requireHandler, async (req, res) => {
 
   saveJsonAtomic(OUTPUT_JSON, mergedCompanies);
   saveJsonAtomic(METADATA_FILE, nextMetadata);
-  if (!await flushPersistenceOrFail(res)) return;
+  await persistentStore.flush();
 
-  res.json({
+  return {
     ...publicResearchImportPreview(validation),
     status: 'imported',
     metadata: nextMetadata,
     recovery_snapshot: recoverySnapshot
+  };
+}
+
+function sendResearchError(res, error) {
+  const statusCode = Number(error && error.statusCode) || 502;
+  return res.status(statusCode >= 400 && statusCode <= 599 ? statusCode : 502).json({
+    error: (error && error.message) || 'Research service request failed.',
+    ...(error && error.preview ? { preview: error.preview } : {})
+  });
+}
+
+app.post('/api/research-import/commit', requireHandler, async (req, res) => {
+  try {
+    const artifact = req.body && (req.body.artifact || req.body);
+    res.json(await commitResearchImportArtifact(artifact, req.authUser));
+  } catch (error) {
+    sendResearchError(res, error);
+  }
+});
+
+// ----------------- AZURE V9 RESEARCH CONTROL -----------------
+// These routes proxy requests server-to-server. The browser never receives the
+// bridge secret, approval email, Azure storage credentials, or a job-start API.
+app.get('/api/research-cloud/config', (req, res) => {
+  res.json({
+    configured: cloudResearchBridge.isConfigured(),
+    approval_location: 'Azure-hosted approval page',
+    one_active_run: true
   });
 });
+
+function computeRunProgress(run) {
+  if (!run || typeof run !== 'object') return 0;
+  const status = String(run.status || '').toUpperCase();
+  if (['COMPLETED', 'PARTIAL_SUCCESS'].includes(status)) return 100;
+  if (['FAILED', 'DENIED', 'EXPIRED', 'APPROVAL_LOCKED', 'RETRY_APPROVAL_REQUIRED', 'EMAIL_FAILED'].includes(status)) return 0;
+  if (status === 'PENDING_APPROVAL') return 0;
+  if (['APPROVED_ENQUEUEING', 'QUEUED'].includes(status)) return 5;
+
+  const progress = run.progress || {};
+  const total = Number(progress.total || (run.parameters && run.parameters.count) || 0);
+  const completed = Number(progress.completed || 0);
+  if (total > 0 && completed > 0) {
+    return Math.min(99, Math.max(10, Math.round((completed / total) * 100)));
+  }
+  return 10;
+}
+
+async function checkAndAutoCommitRun(run, authUser) {
+  if (!run || !run.run_id) return run;
+  const status = String(run.status || '').toUpperCase();
+  const runId = run.run_id;
+  const entry = autoCommitRuns.get(runId);
+  const isComplete = ['COMPLETED', 'PARTIAL_SUCCESS'].includes(status);
+
+  run.completion_percentage = computeRunProgress(run);
+
+  if (entry && entry.committed) {
+    run.auto_committed = true;
+    run.commit_result = entry.commitResult;
+    return run;
+  }
+
+  if (isComplete && entry && !entry.committed && !entry.isCommitting) {
+    entry.isCommitting = true;
+    try {
+      console.log(`[AutoCommit] Run ${runId} finished. Fetching artifact and updating database in one step...`);
+      const artifact = await cloudResearchBridge.getArtifact(runId);
+      const commitResult = await commitResearchImportArtifact(artifact, authUser || { name: entry.requested_by || 'Jalees' });
+      entry.committed = true;
+      entry.commitResult = commitResult;
+      run.auto_committed = true;
+      run.commit_result = commitResult;
+      console.log(`[✓] AutoCommit complete for ${runId}: ${commitResult.accepted_count} companies integrated.`);
+    } catch (err) {
+      console.error(`[-] AutoCommit failed for ${runId}:`, err.message);
+      run.auto_commit_error = err.message;
+    } finally {
+      entry.isCommitting = false;
+    }
+  }
+  return run;
+}
+
+app.post('/api/research-cloud/requests', async (req, res) => {
+  try {
+    const parameters = req.body && req.body.parameters ? req.body.parameters : (req.body || {});
+    const result = await cloudResearchBridge.requestRun(req.authUser.name, parameters);
+    res.status(202).json(result);
+  } catch (error) {
+    sendResearchError(res, error);
+  }
+});
+
+app.post('/api/research-cloud/runs/:runId/approve', requireHandler, async (req, res) => {
+  try {
+    const runId = req.params.runId;
+    const otp = String(req.body && req.body.otp ? req.body.otp : '').trim();
+    if (!/^\d{8}$/.test(otp)) {
+      return res.status(400).json({ error: 'Please enter the 8-digit verification code sent to your email.' });
+    }
+    const result = await cloudResearchBridge.approveRun(runId, otp);
+    // Register for automatic commit in one single seamless pipeline
+    autoCommitRuns.set(runId, {
+      requested_by: req.authUser.name,
+      committed: false,
+      auto_commit: true,
+      approved_at: Date.now()
+    });
+    result.auto_commit_enabled = true;
+    result.completion_percentage = 5;
+    res.json(result);
+  } catch (error) {
+    sendResearchError(res, error);
+  }
+});
+
+app.get('/api/research-cloud/runs', async (req, res) => {
+  try {
+    const listResult = await cloudResearchBridge.listRuns(req.query.limit);
+    const runs = listResult.runs || [];
+    const enriched = await Promise.all(runs.map(run => checkAndAutoCommitRun(run, req.authUser)));
+    res.json({ runs: enriched });
+  } catch (error) {
+    sendResearchError(res, error);
+  }
+});
+
+app.get('/api/research-cloud/runs/:runId', async (req, res) => {
+  try {
+    const rawRun = await cloudResearchBridge.getRun(req.params.runId);
+    const run = await checkAndAutoCommitRun(rawRun, req.authUser);
+    res.json(run);
+  } catch (error) {
+    sendResearchError(res, error);
+  }
+});
+
+app.post('/api/research-cloud/runs/:runId/preview', requireHandler, async (req, res) => {
+  try {
+    const artifact = await cloudResearchBridge.getArtifact(req.params.runId);
+    const validation = validateResearchImportArtifact(artifact);
+    const preview = publicResearchImportPreview(validation);
+    if (preview.error) return res.status(400).json(preview);
+    res.json({ ...preview, cloud_run_id: req.params.runId });
+  } catch (error) {
+    sendResearchError(res, error);
+  }
+});
+
+app.post('/api/research-cloud/runs/:runId/commit', requireHandler, async (req, res) => {
+  try {
+    const artifact = await cloudResearchBridge.getArtifact(req.params.runId);
+    const result = await commitResearchImportArtifact(artifact, req.authUser);
+    res.json({ ...result, cloud_run_id: req.params.runId });
+  } catch (error) {
+    sendResearchError(res, error);
+  }
+});
+
 
 // Refreshes the browser from the remote database. New research reaches this
 // database through the Jalees-only research-import endpoints above.
@@ -1232,7 +1772,12 @@ app.post('/api/sync', requireHandler, (req, res) => {
 });
 
 // ----------------- STATIC APP SHELL -----------------
-// Serve only the HTML shell. Business data and state use authenticated APIs.
+// Serve only authenticated code assets. Business data and state use authenticated APIs.
+app.get('/phone_search.js', (req, res) => {
+  if (!getCurrentUser(req)) return res.status(401).type('text').send('Authentication required.');
+  res.type('application/javascript').sendFile(path.join(SCRIPT_DIR, 'phone_search.js'));
+});
+
 app.get(['/', '/index.html', '/esc_cold_call_copilot.html'], (req, res) => {
   sendAppOrLogin(req, res);
 });
@@ -1260,7 +1805,30 @@ setInterval(async () => {
   }
 }, 5 * 60 * 1000);
 
+// Background Auto-Commit Poller
+
+// When a research pipeline finishes in the cloud, automatically download,
+// validate, and commit the new records without requiring manual intervention.
+setInterval(async () => {
+  if (autoCommitRuns.size === 0) return;
+  for (const [runId, entry] of autoCommitRuns.entries()) {
+    if (entry.committed || entry.isCommitting) continue;
+    try {
+      const run = await cloudResearchBridge.getRun(runId);
+      const status = String(run.status || '').toUpperCase();
+      if (['COMPLETED', 'PARTIAL_SUCCESS'].includes(status)) {
+        await checkAndAutoCommitRun(run, { name: entry.requested_by || 'Jalees' });
+      } else if (['FAILED', 'DENIED', 'EXPIRED', 'APPROVAL_LOCKED'].includes(status)) {
+        entry.failed = true;
+      }
+    } catch (_) {
+      // Ignore background transient errors
+    }
+  }
+}, 5000);
+
 async function startServer() {
+
   await persistentStore.initialize();
   lastAutoSnapshotRevision = getStateRevision();
   app.listen(PORT, '0.0.0.0', () => {
