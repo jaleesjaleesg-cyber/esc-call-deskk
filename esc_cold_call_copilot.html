@@ -1161,7 +1161,7 @@
       </div>
       <div class="header-actions">
         <button class="btn blue" id="pipelineDrawerBtn" title="Open the full-screen list workspace (Shortcut: L)">📋 Pipeline Workspace</button>
-        <button class="btn" id="cloudResearchBtn" title="Request and monitor cloud V9 research">☁ Research Centre</button>
+        <button class="btn" id="cloudResearchBtn" style="background:#4f46e5; color:#ffffff; font-weight:850; border-color:#4338ca; box-shadow:0 2px 8px rgba(79,70,229,0.35);" title="Single-Step Cloud V9 Research (Auto-Import & Scale-to-Zero)">☁ Cloud Research (1-Step)</button>
         <button class="btn toggle-script-btn" id="toggleScriptViewBtn" title="Toggle between Minimalist View and Full Script View (Shortcut: H)">📜 Show Full Script</button>
         <button class="btn handler-btn" id="handlerSuiteBtn" style="display:none;" title="Open assignment, research, reports, and controls">Manager Workspace</button>
         <details class="manager-menu" id="managerUtilitiesMenu" style="display:none;">
@@ -1613,18 +1613,39 @@
         </div>
 
         <div id="handlerImportTab" class="handler-tab-pane" style="display:none;">
-          <div style="padding:18px; background:#ffffff; border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:14px;">
-            <h4 style="font-size:14px; font-weight:850; margin-bottom:6px;">📦 Import completed V9 research</h4>
-            <p style="font-size:12px; color:var(--text-muted); line-height:1.55; margin-bottom:14px;">
-              Select the <code>research_import_*.json</code> produced after the V9 workflow. Preview validates every CRN before anything changes. Commit updates company research only; calls, notes, pins, pipeline positions, history and deleted-company records stay untouched.
-            </p>
-            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-              <input type="file" id="researchImportFileInput" accept=".json,application/json" style="max-width:460px; min-height:38px; padding:7px; border:1px solid var(--border); border-radius:var(--radius-sm); background:#fff;" />
-              <button class="btn blue" id="previewResearchImportBtn">🔍 Preview Import</button>
-              <button class="btn primary" id="commitResearchImportBtn" disabled>✅ Commit Import</button>
+          <!-- 1-Step Cloud V9 Research Banner -->
+          <div style="padding:20px; background:linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%); border:2px solid #8b5cf6; border-radius:var(--radius-sm); margin-bottom:18px; box-shadow:0 4px 12px rgba(139,92,246,0.12);">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+              <div>
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                  <span style="font-size:20px;">⚡</span>
+                  <h4 style="font-size:15px; font-weight:900; color:#4c1d95; margin:0;">1-Step Cloud V9 Research (Automated Pipeline)</h4>
+                  <span style="background:#7c3aed; color:#fff; font-size:10px; font-weight:800; padding:2px 8px; border-radius:999px;">NEW &amp; RECOMMENDED</span>
+                </div>
+                <p style="font-size:12px; color:#5b21b6; line-height:1.55; margin:0; max-width:620px;">
+                  No manual scripts or file uploads required. Configure company count, verify the 8-digit OTP emailed to you, and let Microsoft Azure research, validate, and auto-commit directly into your database in one single step.
+                </p>
+              </div>
+              <button class="btn" id="launchCloudFromHandlerBtn" style="background:#6d28d9; color:#ffffff; font-weight:900; padding:10px 20px; font-size:13px; border:0; border-radius:8px; cursor:pointer; box-shadow:0 4px 10px rgba(109,40,217,0.35);">
+                🚀 Launch Cloud Research Engine
+              </button>
             </div>
-            <div id="researchImportStatus" style="margin-top:12px; padding:10px 12px; border-radius:var(--radius-sm); background:#f4f0e6; font-size:12px; font-weight:750;">Choose a V9 research import file.</div>
           </div>
+
+          <details style="margin-bottom:14px; border:1px solid var(--border); border-radius:var(--radius-sm); background:#fff; padding:12px 16px;">
+            <summary style="font-size:12px; font-weight:800; color:var(--text-muted); cursor:pointer;">📦 Or import local JSON file manually (Legacy fallback)</summary>
+            <div style="padding-top:14px;">
+              <p style="font-size:12px; color:var(--text-muted); line-height:1.55; margin-bottom:14px;">
+                Select the <code>research_import_*.json</code> produced after the V9 workflow. Preview validates every CRN before anything changes. Commit updates company research only; calls, notes, pins, pipeline positions, history and deleted-company records stay untouched.
+              </p>
+              <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                <input type="file" id="researchImportFileInput" accept=".json,application/json" style="max-width:460px; min-height:38px; padding:7px; border:1px solid var(--border); border-radius:var(--radius-sm); background:#fff;" />
+                <button class="btn blue" id="previewResearchImportBtn">🔍 Preview Import</button>
+                <button class="btn primary" id="commitResearchImportBtn" disabled>✅ Commit Import</button>
+              </div>
+              <div id="researchImportStatus" style="margin-top:12px; padding:10px 12px; border-radius:var(--radius-sm); background:#f4f0e6; font-size:12px; font-weight:750;">Choose a V9 research import file.</div>
+            </div>
+          </details>
 
           <div id="researchImportPreviewWrap" style="display:none;">
             <div id="researchImportSummary" class="metrics-summary-grid" style="margin-bottom:14px;"></div>
@@ -3728,6 +3749,13 @@
     }
 
     document.getElementById("cloudResearchBtn").addEventListener("click", openCloudResearchCentre);
+    const launchFromHandler = document.getElementById("launchCloudFromHandlerBtn");
+    if (launchFromHandler) {
+      launchFromHandler.addEventListener("click", () => {
+        closeHandlerSuite();
+        openCloudResearchCentre();
+      });
+    }
     document.getElementById("closeCloudResearchBtn").addEventListener("click", closeCloudResearchCentre);
     document.getElementById("refreshCloudResearchBtn").addEventListener("click", loadCloudResearchRuns);
     document.getElementById("requestCloudResearchBtn").addEventListener("click", requestCloudResearch);
