@@ -1137,6 +1137,59 @@
       .header-actions > .btn, .header-actions > details, .header-actions > .user-pill-badge { flex: 1 1 auto; }
       .manager-menu-panel { position: fixed; left: 12px; right: 12px; top: 108px; width: auto; }
     }
+    /* ---------- Role-based, calmer workspace ----------
+       body[data-role] is set after sign-in. Anything a role does not need
+       day to day is hidden or folded away, never removed. */
+    .brand-title p { display: none; }
+    #heroDirectPhoneBtn { display: none !important; } /* numbers live in the phone row */
+    .research-contacts-section { display: none !important; } /* duplicate of the phone row */
+
+    body[data-role="caller"] #cloudResearchBtn,
+    body[data-role="caller"] #heroRankTag,
+    body[data-role="caller"] #heroScoreTag,
+    body[data-role="caller"] #heroStatusTag,
+    body[data-role="caller"] #heroCrnTag,
+    body[data-role="caller"] #heroAssignmentTag,
+    body[data-role="caller"] .quick-select-wrap,
+    body[data-role="caller"] #copyEmailPitchBtn { display: none !important; }
+    body[data-role="caller"] .search-panel { grid-template-columns: minmax(0, 1fr) auto; }
+    body[data-role="caller"] #nextTargetBtn { padding-left: 28px; padding-right: 28px; }
+
+    .pipeline-nav-bar:not(.show-all-lists) .pipeline-tab.tab-secondary:not(.active) { display: none; }
+    .more-lists-toggle {
+      border: 1px dashed var(--border); background: transparent; color: var(--text-muted);
+      font: inherit; font-size: 11px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase;
+      padding: 7px 12px; border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap;
+    }
+    .more-lists-toggle:hover { color: var(--text); border-color: var(--text); }
+    .pipeline-tabs { flex-wrap: wrap; }
+
+    .more-research { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px; }
+    .more-research > summary {
+      cursor: pointer; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+      color: var(--text-muted); list-style: none;
+    }
+    .more-research > summary::-webkit-details-marker { display: none; }
+    .more-research > summary::before { content: "▸ "; }
+    .more-research[open] > summary::before { content: "▾ "; }
+    .more-research[open] > summary { margin-bottom: 12px; }
+    .more-research .intel-section { margin-top: 12px; }
+
+    .quick-outcomes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+    .quick-outcome-btn {
+      border: 1px solid var(--border); background: var(--panel); color: var(--text);
+      font: inherit; font-size: 13px; font-weight: 700; text-align: left;
+      padding: 11px 12px; border-radius: var(--radius); cursor: pointer; line-height: 1.25;
+    }
+    .quick-outcome-btn small { display: block; font-size: 10.5px; font-weight: 600; color: var(--text-muted); margin-top: 2px; }
+    .quick-outcome-btn:hover { border-color: var(--forest); }
+    .quick-outcome-btn.selected { background: var(--forest); color: #fff; border-color: var(--forest); }
+    .quick-outcome-btn.selected small { color: rgba(255,255,255,.75); }
+    .quick-outcome-btn.reached.selected { background: #15803d; border-color: #15803d; }
+    .quick-outcome-btn.stop.selected { background: var(--coral-ink); border-color: var(--coral-ink); }
+    .logger-advanced { margin-top: 10px; }
+    .logger-advanced > summary { cursor: pointer; font-size: 11.5px; color: var(--text-muted); font-weight: 700; }
+    .logger-advanced[open] > summary { margin-bottom: 8px; }
   </style>
 </head>
 <body>
@@ -1152,11 +1205,12 @@
       </div>
       <div class="header-actions">
         <button class="btn blue" id="pipelineDrawerBtn" title="Open the full-screen list workspace (Shortcut: L)">📋 Pipeline Workspace</button>
-        <button class="btn" id="cloudResearchBtn" style="background:#4f46e5; color:#ffffff; font-weight:850; border-color:#4338ca; box-shadow:0 2px 8px rgba(79,70,229,0.35);" title="Single-Step Cloud V9 Research (Auto-Import & Scale-to-Zero)">☁ Cloud Research (1-Step)</button>
+        
         <button class="btn handler-btn" id="handlerSuiteBtn" style="display:none;" title="Open assignment, research, reports, and controls">Manager Workspace</button>
         <details class="manager-menu" id="managerUtilitiesMenu" style="display:none;">
           <summary class="btn">Utilities ▾</summary>
           <div class="manager-menu-panel">
+            <button class="btn" id="cloudResearchBtn" title="Single-Step Cloud V9 Research (Auto-Import & Scale-to-Zero)">☁ Cloud Research (1-Step)</button>
             <button class="btn" id="saveSnapshotBtn" style="background:#047857; color:#ffffff; font-weight:800; border-color:#065f46;" title="Save point-in-time snapshot to disk">💾 Save Snapshot</button>
             <button class="btn" id="directDownloadBackupBtn" title="Download backup JSON directly to your device">📥 Export Backup</button>
             <button class="btn" id="manageSnapshotsBtn" title="Manage, restore, or export snapshots">📸 Snapshots <span id="snapshotCountBadge" class="p-count" style="display:none; font-size:10px; margin-left:4px;">0</span></button>
@@ -1217,6 +1271,7 @@
         <button class="pipeline-tab" data-pipeline-tab="master_list" role="tab" aria-selected="false">
           <span>🗄️ Master List</span> <span class="p-count" id="countMasterList">0</span>
         </button>
+        <button type="button" class="more-lists-toggle" id="moreListsToggle" aria-expanded="false">More lists ▾</button>
       </div>
     </nav>
 
@@ -1276,8 +1331,7 @@
       <!-- Multiple Phone Numbers with Numeric Dialing -->
       <div class="hero-phones-container" id="heroPhonesContainer">
         <div class="phones-label-row">
-          <span>Available Phone Numbers & Purpose:</span>
-          <span style="font-size:9.5px; opacity:0.8;">Click numeric value to dial</span>
+          <span>Phone numbers</span>
         </div>
         <div class="phones-badge-grid" id="heroPhoneBadgesGrid">
           <!-- Dynamically filled with labeled phone items -->
@@ -1330,7 +1384,7 @@
           </div>
 
           <!-- Contact Numbers & Socials in Research Summary -->
-          <div class="intel-section">
+          <div class="intel-section research-contacts-section">
             <span class="intel-label">All Verified Contact Numbers & Socials</span>
             <div id="researchSummaryContactsBox" style="display:flex; flex-direction:column; gap:6px; margin-top:2px;"></div>
           </div>
@@ -1351,7 +1405,9 @@
             </p>
           </div>
 
-          <!-- Website Opportunity & Digital Angle -->
+          <details class="more-research" id="moreResearchDetails">
+            <summary>More research — evidence, red flags, website angle</summary>
+            <!-- Website Opportunity & Digital Angle -->
           <div class="intel-section" id="intelWebsiteOppSection" style="display:none; background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:10px 12px; margin-bottom:12px;">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
               <span class="intel-label" style="color:#92400e; font-weight:800; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">🌐 Website Opportunity & Digital Hook</span>
@@ -1375,6 +1431,7 @@
             <span class="intel-label" style="color:#991b1b;">Assessment & Red Flag Notes</span>
             <ul class="evidence-list" id="intelRedFlagsList" style="color:#991b1b;"></ul>
           </div>
+          </details>
         </section>
       </div>
 
@@ -1390,6 +1447,17 @@
 
         <!-- Target Pipeline Status Dropdown -->
         <div>
+          <span class="field-label">What happened on this call?</span>
+          <div class="quick-outcomes" id="quickOutcomeButtons">
+            <button type="button" class="quick-outcome-btn" data-list="contacted" data-outcome="No answer">No answer<small>+1 attempt</small></button>
+            <button type="button" class="quick-outcome-btn" data-list="contacted" data-outcome="Left voicemail">Left voicemail<small>+1 attempt</small></button>
+            <button type="button" class="quick-outcome-btn" data-list="contacted" data-outcome="Gatekeeper / decision maker unavailable">Gatekeeper<small>DM not available · +1 attempt</small></button>
+            <button type="button" class="quick-outcome-btn reached" data-list="reached" data-outcome="Spoke to decision maker">Spoke to DM<small>Moves to Reached</small></button>
+            <button type="button" class="quick-outcome-btn stop" data-list="off_our_list" data-outcome="Not a fit">Not a fit<small>Off our list</small></button>
+            <button type="button" class="quick-outcome-btn stop" data-list="permanently_off_our_list" data-outcome="Do not contact">Do not call<small>Permanently off</small></button>
+          </div>
+          <details class="logger-advanced" id="loggerAdvanced">
+          <summary>Other list moves…</summary>
           <label for="logResponseMoveListSelect" class="field-label">Call Result / Move to List</label>
           <select id="logResponseMoveListSelect" class="quick-select" style="min-height:38px; padding:6px 10px; font-size:12px; font-weight:750; width:100%;">
             <option value="" selected>Choose what happened on this call…</option>
@@ -1402,6 +1470,7 @@
             <option value="permanently_off_our_list">⛔ Permanently Off Our List (Do Not Contact)</option>
             <option value="master_list">🗄️ Master List (Archive)</option>
           </select>
+          </details>
           <div id="loggerRouteHint" style="margin-top:5px; font-size:10.5px; line-height:1.35; color:var(--text-muted);">Choose a result before saving. Notes are saved safely, but notes alone do not decide which list a company belongs in.</div>
         </div>
 
@@ -2345,7 +2414,47 @@
       }
     }
 
+    // Lists each person works from every day. Everything else stays one click
+    // away behind "More lists"; the list you are on is always visible.
+    const PRIMARY_TABS_BY_ROLE = {
+      caller: ["my_queue", "contacted", "reached", "pinned"],
+      handler: ["todays_targets", "all_qualified", "human_review", "reached", "pinned"]
+    };
+    const SHOW_ALL_LISTS_KEY = "esc_show_all_lists_v1";
+
+    function applyListTabTiers() {
+      const role = currentUser && currentUser.role === "handler" ? "handler" : "caller";
+      const primary = new Set(PRIMARY_TABS_BY_ROLE[role]);
+      let hiddenCount = 0;
+      document.querySelectorAll("[data-pipeline-tab]").forEach(tab => {
+        const secondary = !primary.has(tab.dataset.pipelineTab);
+        tab.classList.toggle("tab-secondary", secondary);
+        if (secondary) hiddenCount += 1;
+      });
+      const nav = document.querySelector(".pipeline-nav-bar");
+      const toggle = document.getElementById("moreListsToggle");
+      let showAll = false;
+      try { showAll = localStorage.getItem(SHOW_ALL_LISTS_KEY) === "1"; } catch (e) {}
+      if (nav) nav.classList.toggle("show-all-lists", showAll);
+      if (toggle) {
+        toggle.textContent = showAll ? "Fewer lists ▴" : "More lists (" + hiddenCount + ") ▾";
+        toggle.setAttribute("aria-expanded", showAll ? "true" : "false");
+      }
+    }
+
     function updateUserUI() {
+      if (currentUser) document.body.dataset.role = currentUser.role === "handler" ? "handler" : "caller";
+      applyListTabTiers();
+      const moreResearch = document.getElementById("moreResearchDetails");
+      if (moreResearch && currentUser && !moreResearch.dataset.roleApplied) {
+        moreResearch.open = currentUser.role === "handler";
+        moreResearch.dataset.roleApplied = "1";
+      }
+      const drawerBtn = document.getElementById("pipelineDrawerBtn");
+      if (drawerBtn && currentUser && currentUser.role !== "handler") {
+        drawerBtn.textContent = "📋 Table view";
+        drawerBtn.classList.remove("blue");
+      }
       const badge = document.getElementById("userBadgeDisplay");
       const handlerBtn = document.getElementById("handlerSuiteBtn");
       if (badge && currentUser) {
@@ -2907,9 +3016,6 @@
       const current = getCompanyPipeline(crn);
       const isPinned = !current.is_pinned;
       const updatedAt = nowMs();
-      let assignmentStatus = current.assignment_status || "unassigned";
-      if (current.assigned_username && isContactAttempt) assignmentStatus = "in_progress";
-      if (current.assigned_username && ["reached", "unreachable", "off_our_list", "permanently_off_our_list"].includes(finalList)) assignmentStatus = "completed";
       const updated = {
         ...current,
         is_pinned: isPinned,
@@ -2999,6 +3105,11 @@
       if (outcome && (outcome.toLowerCase().includes("disqualif") || outcome.toLowerCase().includes("wrong number"))) {
         finalList = "off_our_list";
       }
+
+      // Assigned work: an attempt puts it in progress; a final result closes it.
+      let assignmentStatus = current.assignment_status || "unassigned";
+      if (current.assigned_username && isContactAttempt) assignmentStatus = "in_progress";
+      if (current.assigned_username && ["reached", "unreachable", "off_our_list", "permanently_off_our_list"].includes(finalList)) assignmentStatus = "completed";
 
       const updatedAt = nowMs();
       const updated = {
@@ -3215,6 +3326,12 @@
       if (heroTag) {
         heroTag.textContent = meta.icon + " " + meta.label;
         heroTag.className = "tag pipeline-badge pipeline-" + pipe.pipeline_list;
+        // For the caller, work Jalees assigned is simply "your queue"; the
+        // shared Today's Targets list name only confused the two ideas.
+        const inMyQueue = currentUser && currentUser.role !== "handler"
+          && pipe.assigned_username === currentUser.username
+          && ["assigned", "in_progress"].includes(pipe.assignment_status);
+        if (inMyQueue && pipe.pipeline_list === "todays_targets") heroTag.textContent = "☎ Your queue";
       }
       if (assignmentTag) {
         if (pipe.assigned_to) {
@@ -3299,7 +3416,21 @@
     // =========================================================================
     // LOGGER DYNAMIC FIELDS (NUMERIC PHONE VALUES & OPEN OUTCOME TEXTBOX)
     // =========================================================================
+    function syncQuickOutcomeButtons(targetList) {
+      const outcome = (document.getElementById("callOutcomeInput") || {}).value || "";
+      let matched = false;
+      document.querySelectorAll(".quick-outcome-btn").forEach(btn => {
+        const selected = Boolean(targetList) && btn.dataset.list === targetList && btn.dataset.outcome === outcome.trim();
+        btn.classList.toggle("selected", selected);
+        btn.setAttribute("aria-pressed", selected ? "true" : "false");
+        if (selected) matched = true;
+      });
+      const advanced = document.getElementById("loggerAdvanced");
+      if (advanced && targetList && !matched) advanced.open = true;
+    }
+
     function updateLoggerDynamicFields(targetList) {
+      syncQuickOutcomeButtons(targetList);
       const phoneSection = document.getElementById("mandatoryPhoneSection");
       const dmSection = document.getElementById("mandatoryDmSection");
       const phoneBadge = document.getElementById("phoneMandatoryBadge");
@@ -3425,11 +3556,8 @@
           alertBox.style.display = "block";
           return;
         }
-        if (!notes) {
-          alertBox.textContent = "⚠️ Add notes for this attempt so the full contact timeline remains useful.";
-          alertBox.style.display = "block";
-          return;
-        }
+        // Notes are optional for an unanswered attempt: the one-click result
+        // already records what happened. Phone and outcome stay required.
       }
 
       if (targetList === "reached") {
@@ -6558,6 +6686,25 @@
 
     document.getElementById("logResponseMoveListSelect").addEventListener("change", (e) => {
       updateLoggerDynamicFields(e.target.value);
+    });
+
+    document.querySelectorAll(".quick-outcome-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const select = document.getElementById("logResponseMoveListSelect");
+        const outcomeInput = document.getElementById("callOutcomeInput");
+        if (outcomeInput) outcomeInput.value = btn.dataset.outcome;
+        select.value = btn.dataset.list;
+        updateLoggerDynamicFields(btn.dataset.list);
+        const notes = document.getElementById("callNotesArea");
+        if (notes) notes.focus();
+      });
+    });
+
+    document.getElementById("moreListsToggle").addEventListener("click", () => {
+      const nav = document.querySelector(".pipeline-nav-bar");
+      const showAll = !(nav && nav.classList.contains("show-all-lists"));
+      try { localStorage.setItem(SHOW_ALL_LISTS_KEY, showAll ? "1" : "0"); } catch (e) {}
+      applyListTabTiers();
     });
 
     document.getElementById("submitLoginBtn").addEventListener("click", submitLogin);

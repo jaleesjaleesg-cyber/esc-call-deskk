@@ -515,6 +515,31 @@ class CallingEngineRegressionTests(unittest.TestCase):
         self.assertIn('id="histStatAroosa"', self.ui)
         self.assertIn('id="histStatTotal"', self.ui)
 
+    def _function_body(self, name):
+        start = self.ui.index("function " + name + "(")
+        end = self.ui.index("\n    function ", start + 1)
+        return self.ui[start:end]
+
+    def test_pin_and_call_save_do_not_reference_each_others_variables(self):
+        # Regression: these lines were pasted into toggleCompanyPin on 2026-09-13,
+        # which crashed both Pin and saving a call result.
+        pin = self._function_body("toggleCompanyPin")
+        self.assertNotIn("isContactAttempt", pin)
+        self.assertNotIn("finalList", pin)
+        save = self._function_body("setCompanyPipeline")
+        self.assertIn('let assignmentStatus = current.assignment_status || "unassigned";', save)
+        self.assertLess(save.index("let assignmentStatus"), save.index("if (assignmentStatus !=="))
+
+    def test_role_based_workspace_keeps_every_list_reachable(self):
+        self.assertIn('document.body.dataset.role = currentUser.role === "handler" ? "handler" : "caller";', self.ui)
+        self.assertIn('caller: ["my_queue", "contacted", "reached", "pinned"]', self.ui)
+        self.assertIn('id="moreListsToggle"', self.ui)
+        # Secondary lists fold away but the active list and the toggle always show.
+        self.assertIn(".pipeline-nav-bar:not(.show-all-lists) .pipeline-tab.tab-secondary:not(.active) { display: none; }", self.ui)
+        self.assertIn('class="quick-outcome-btn" data-list="contacted" data-outcome="No answer"', self.ui)
+        self.assertNotIn('href="tel:', self.ui)
+        self.assertNotIn('"tel:"', self.ui)
+
 
 if __name__ == "__main__":
     unittest.main()
