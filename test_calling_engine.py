@@ -108,7 +108,7 @@ class CallingEngineRegressionTests(unittest.TestCase):
         self.assertIn('let pipelineStateCache = null', self.ui)
         self.assertIn('let callHistoryCache = null', self.ui)
         self.assertIn('const pendingPipelineCrns = new Set()', self.ui)
-        self.assertIn('pendingHistoryRecords.set(String(record.id || record.timestamp), record)', self.ui)
+        self.assertIn('pendingHistoryRecords.set(historyRecordKey(record), record)', self.ui)
         self.assertIn('virtual: true', self.ui)
         self.assertNotIn('<option value="all_qualified">🎯 Needs ACS</option>', self.ui)
         self.assertIn("app.post('/api/pipeline/bulk', requireHandler", self.node_server)

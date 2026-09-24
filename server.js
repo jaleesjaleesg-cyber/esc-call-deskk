@@ -484,17 +484,30 @@ function computeSnapshotStats(pipelineState, callHistory, totalCompaniesCount = 
   };
 }
 
+// Snapshot files can be tens of megabytes (research imports include the whole
+// company database), so listing caches each file's summary until it changes.
+const snapshotSummaryCache = new Map();
+
 function listAllSnapshots() {
   if (!fs.existsSync(SNAPSHOTS_DIR)) return [];
   const files = fs.readdirSync(SNAPSHOTS_DIR).filter(f => f.startsWith('snapshot_') && f.endsWith('.json'));
   const snapshots = [];
+  const present = new Set(files);
+  for (const cached of snapshotSummaryCache.keys()) {
+    if (!present.has(cached)) snapshotSummaryCache.delete(cached);
+  }
   for (const filename of files) {
     const filepath = path.join(SNAPSHOTS_DIR, filename);
     try {
+      const st = fs.statSync(filepath);
+      const cached = snapshotSummaryCache.get(filename);
+      if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+        snapshots.push(cached.summary);
+        continue;
+      }
       const data = loadJsonSafe(filepath, null);
       if (data) {
-        const st = fs.statSync(filepath);
-        snapshots.push({
+        const summary = {
           id: data.id || filename.replace('.json', ''),
           filename,
           name: data.name || filename,
@@ -505,12 +518,39 @@ function listAllSnapshots() {
           notes: data.notes || '',
           stats: data.stats || {},
           size_bytes: st.size
-        });
+        };
+        snapshotSummaryCache.set(filename, { mtimeMs: st.mtimeMs, size: st.size, summary });
+        snapshots.push(summary);
       }
     } catch (_) {}
   }
   snapshots.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
   return snapshots;
+}
+
+// System-created recovery points are pruned per type. Snapshots a person
+// created or uploaded (manual / imported) are never deleted automatically.
+const SNAPSHOT_RETENTION = {
+  auto: 25,
+  pre_research_import: 3,
+  pre_restore: 5,
+  pre_assignment: 10,
+  pre_bulk_move: 10,
+  pre_delete: 10,
+  pre_clear_history: 5
+};
+
+function pruneAutomaticSnapshots(snapType) {
+  const keep = SNAPSHOT_RETENTION[snapType];
+  if (!keep) return;
+  const sameType = listAllSnapshots().filter(s => s.type === snapType);
+  for (const old of sameType.slice(keep)) {
+    try {
+      const oldPath = path.join(SNAPSHOTS_DIR, old.filename);
+      fs.unlinkSync(oldPath);
+      persistentStore.queueFileDelete(oldPath);
+    } catch (_) {}
+  }
 }
 
 function createSnapshot({
@@ -570,19 +610,7 @@ function createSnapshot({
 
   saveJsonAtomic(filepath, snapshotDoc);
 
-  // Auto-prune old auto snapshots
-  if (snap_type === 'auto') {
-    const all = listAllSnapshots().filter(s => s.type === 'auto');
-    if (all.length > 25) {
-      for (const old of all.slice(25)) {
-        try {
-          const oldPath = path.join(SNAPSHOTS_DIR, old.filename);
-          fs.unlinkSync(oldPath);
-          persistentStore.queueFileDelete(oldPath);
-        } catch (_) {}
-      }
-    }
-  }
+  pruneAutomaticSnapshots(snap_type);
 
   return {
     id: snapId,
@@ -598,7 +626,7 @@ function createSnapshot({
   };
 }
 
-function restoreSnapshot(snapIdOrFilename) {
+function restoreSnapshot(snapIdOrFilename, restoredBy = null) {
   const resolved = resolveSnapshotFile(snapIdOrFilename);
   if (!resolved) return { err: 'Invalid snapshot id or filename.' };
   const { filepath } = resolved;
@@ -612,11 +640,21 @@ function restoreSnapshot(snapIdOrFilename) {
   const pipeline = doc.pipeline_state || {};
   const history = doc.call_history || [];
   const settings = normalizeWorkspaceSettings(doc.settings || {});
+  const restoresCompanies = Boolean(doc.company_database && typeof doc.company_database === 'object');
+
+  // Restoring the wrong snapshot must never be a one-way trip.
+  const safetySnapshot = createSnapshot({
+    name: `Before restoring ${doc.name || doc.id || 'snapshot'}`,
+    notes: 'Automatic recovery point taken immediately before a snapshot restore.',
+    created_by: restoredBy || 'System',
+    snap_type: 'pre_restore',
+    include_company_database: restoresCompanies
+  });
 
   saveJsonAtomic(PIPELINE_STATE_FILE, pipeline);
   saveJsonAtomic(CALL_HISTORY_FILE, history);
   saveJsonAtomic(WORKSPACE_SETTINGS_FILE, settings);
-  if (doc.company_database && typeof doc.company_database === 'object') {
+  if (restoresCompanies) {
     const restoredAt = Date.now();
     saveJsonAtomic(OUTPUT_JSON, doc.company_database);
     saveJsonAtomic(METADATA_FILE, {
@@ -638,7 +676,8 @@ function restoreSnapshot(snapIdOrFilename) {
       pipeline_state: pipeline,
       call_history: history,
       settings,
-      company_database_restored: Boolean(doc.company_database)
+      company_database_restored: restoresCompanies,
+      safety_snapshot: safetySnapshot
     }
   };
 }
@@ -804,9 +843,9 @@ function mergeWorkspaceState(pipelineState, callHistory, replaceHistory = false,
     } else {
       const diskHistory = loadJsonSafe(CALL_HISTORY_FILE, []).filter(item => item && typeof item === 'object' && !deletedCrns.has(String(item.crn || '').trim().toUpperCase()));
       const map = new Map();
-      for (const item of diskHistory) map.set(String(item.id || item.timestamp), item);
+      for (const item of diskHistory) map.set(historyRecordKey(item), item);
       for (const item of filtered) {
-        const key = String(item.id || item.timestamp);
+        const key = historyRecordKey(item);
         if (!map.has(key)) map.set(key, { ...item, caller: authUser ? authUser.name : (item.caller || 'User') });
       }
       const merged = Array.from(map.values()).sort((a, b) => (b.id || 0) - (a.id || 0));
@@ -815,6 +854,13 @@ function mergeWorkspaceState(pipelineState, callHistory, replaceHistory = false,
   }
 
   return getStateRevision();
+}
+
+// Two different events can share a millisecond id (for example a caller's log
+// and a manager's bulk move). Keying on the company as well stops the merge
+// from silently discarding one of them.
+function historyRecordKey(item) {
+  return `${String(item.id || item.timestamp)}|${String(item.crn || '').trim().toUpperCase()}`;
 }
 
 function getCurrentUser(req) {
@@ -1034,6 +1080,8 @@ app.get('/api/companies/search', (req, res) => {
   }
   const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 25));
   const companies = getVisibleCompanies();
+  const pipeline = loadJsonSafe(PIPELINE_STATE_FILE, {});
+  const liveList = company => (pipeline[company.crn] && pipeline[company.crn].pipeline_list) || company.pipeline_list || 'all_qualified';
 
   // Search by mobile or landline phone
   const phoneMatches = phoneSearch.searchCompaniesByPhone(companies, query, limit);
@@ -1050,7 +1098,7 @@ app.get('/api/companies/search', (req, res) => {
         phone_purpose: match.purpose,
         dm_name: match.dmName,
         dm_role: match.dmRole,
-        pipeline_list: company.pipeline_list || 'all_qualified'
+        pipeline_list: liveList(company)
       }))
     });
   }
@@ -1064,7 +1112,7 @@ app.get('/api/companies/search', (req, res) => {
         crn: company.crn,
         company_name: company.company_name,
         matched_phone: company.phone || '',
-        pipeline_list: company.pipeline_list || 'all_qualified'
+        pipeline_list: liveList(company)
       });
       if (textMatches.length >= limit) break;
     }
@@ -1096,6 +1144,7 @@ app.get('/api/state', (req, res) => {
     status: 'ok',
     last_updated: Math.floor(revision / 1e6),
     revision,
+    server_time: Date.now(),
     stats,
     pipeline_state: pipeline,
     call_history: history,
@@ -1126,6 +1175,7 @@ app.post('/api/state', async (req, res) => {
   res.json({
     status: 'ok',
     saved_at: Date.now(),
+    server_time: Date.now(),
     revision,
     settings,
     stats
@@ -1384,7 +1434,7 @@ app.post('/api/history/clear', requireHandler, async (req, res) => {
     createSnapshot({
       name: `Before clearing history (${history.length} records)`,
       notes: `Automatic recovery point before call history was cleared by ${cleared_by}.`,
-      created_by,
+      created_by: cleared_by,
       snap_type: 'pre_clear_history'
     });
   }
@@ -1443,7 +1493,7 @@ app.post('/api/snapshots/restore', requireHandler, async (req, res) => {
   if (!snapId) return res.status(400).json({ error: 'Missing snapshot id or filename' });
   if (!resolveSnapshotFile(snapId)) return res.status(400).json({ error: 'Invalid snapshot id or filename' });
 
-  const { res: restored, err } = restoreSnapshot(snapId);
+  const { res: restored, err } = restoreSnapshot(snapId, req.authUser.name);
   if (err) return res.status(400).json({ error: err });
 
   if (!await flushPersistenceOrFail(res)) return;
@@ -1484,7 +1534,7 @@ app.post('/api/snapshots/upload', requireHandler, async (req, res) => {
   const snapName = payload.name || `Imported Snapshot ${dateStr.substring(0, 16)}`;
   const slug = snapName.toLowerCase().replace(/[^a-z0-9_-]/g, '_').substring(0, 30);
   const dStamp = new Date(nowTs).toISOString().replace(/\D/g, '').substring(0, 14);
-  const snapId = `snapshot_${dStamp}_${slug}`;
+  const snapId = `snapshot_${dStamp}_${String(nowTs % 1000).padStart(3, '0')}_${slug}`;
   const filename = `${snapId}.json`;
   const filepath = path.join(SNAPSHOTS_DIR, filename);
 
@@ -1495,11 +1545,15 @@ app.post('/api/snapshots/upload', requireHandler, async (req, res) => {
 
   saveJsonAtomic(filepath, payload);
 
+  let restoreError = null;
   if (req.body.restore_immediately) {
-    restoreSnapshot(snapId);
+    restoreError = restoreSnapshot(snapId, req.authUser.name).err || null;
   }
 
   if (!await flushPersistenceOrFail(res)) return;
+  if (restoreError) {
+    return res.status(400).json({ error: `Snapshot was imported but could not be restored: ${restoreError}` });
+  }
   res.json({
     status: 'ok',
     message: 'Snapshot imported successfully.',
@@ -1655,6 +1709,11 @@ function computeRunProgress(run) {
   return 10;
 }
 
+// A failed commit is retried with a growing delay, never in a tight loop:
+// each attempt takes a full-database recovery snapshot.
+const AUTO_COMMIT_MAX_ATTEMPTS = 3;
+const AUTO_COMMIT_RETRY_MS = 60 * 1000;
+
 async function checkAndAutoCommitRun(run, authUser) {
   if (!run || !run.run_id) return run;
   const status = String(run.status || '').toUpperCase();
@@ -1670,7 +1729,8 @@ async function checkAndAutoCommitRun(run, authUser) {
     return run;
   }
 
-  if (isComplete && entry && !entry.committed && !entry.isCommitting) {
+  if (entry && entry.failed && entry.lastError) run.auto_commit_error = entry.lastError;
+  if (isComplete && entry && !entry.committed && !entry.isCommitting && !entry.failed && !(entry.retryAfter > Date.now())) {
     entry.isCommitting = true;
     try {
       console.log(`[AutoCommit] Run ${runId} finished. Fetching artifact and updating database in one step...`);
@@ -1682,6 +1742,14 @@ async function checkAndAutoCommitRun(run, authUser) {
       run.commit_result = commitResult;
       console.log(`[✓] AutoCommit complete for ${runId}: ${commitResult.accepted_count} companies integrated.`);
     } catch (err) {
+      entry.commitAttempts = (entry.commitAttempts || 0) + 1;
+      entry.lastError = err.message;
+      if (entry.commitAttempts >= AUTO_COMMIT_MAX_ATTEMPTS) {
+        entry.failed = true;
+        console.error(`[-] AutoCommit gave up on ${runId} after ${entry.commitAttempts} attempts. Use the manual commit button.`);
+      } else {
+        entry.retryAfter = Date.now() + AUTO_COMMIT_RETRY_MS * entry.commitAttempts;
+      }
       console.error(`[-] AutoCommit failed for ${runId}:`, err.message);
       run.auto_commit_error = err.message;
     } finally {
@@ -1815,14 +1883,16 @@ setInterval(async () => {
 setInterval(async () => {
   if (autoCommitRuns.size === 0) return;
   for (const [runId, entry] of autoCommitRuns.entries()) {
-    if (entry.committed || entry.isCommitting) continue;
+    if (entry.committed || entry.isCommitting || entry.failed) continue;
+    if (entry.retryAfter && entry.retryAfter > Date.now()) continue;
     try {
       const run = await cloudResearchBridge.getRun(runId);
       const status = String(run.status || '').toUpperCase();
       if (['COMPLETED', 'PARTIAL_SUCCESS'].includes(status)) {
         await checkAndAutoCommitRun(run, { name: entry.requested_by || 'Jalees' });
-      } else if (['FAILED', 'DENIED', 'EXPIRED', 'APPROVAL_LOCKED'].includes(status)) {
+      } else if (['FAILED', 'DENIED', 'EXPIRED', 'APPROVAL_LOCKED', 'RETRY_APPROVAL_REQUIRED', 'EMAIL_FAILED'].includes(status)) {
         entry.failed = true;
+        entry.lastError = `Cloud run ended with status ${status}.`;
       }
     } catch (_) {
       // Ignore background transient errors

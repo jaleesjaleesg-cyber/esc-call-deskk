@@ -11,14 +11,11 @@ TUNNEL_LOG="$LOG_DIR/cloudflared_$RUN_STAMP.log"
 SERVER_PID=""
 TUNNEL_PID=""
 
-# 1. Start Auto-Sync Python Server in background
-if [ -f "server.py" ]; then
-    python3 server.py 8000 >"$SERVER_LOG" 2>&1 &
-    SERVER_PID=$!
-else
-    python3 -m http.server 8000 >/dev/null 2>&1 &
-    SERVER_PID=$!
-fi
+# 1. Start the same Node server that runs on Hostinger. (server.py is a
+# legacy server kept only for the Python regression tests; it lacks the
+# company-index, assignment and research routes the current app needs.)
+PORT=8000 node server.js >"$SERVER_LOG" 2>&1 &
+SERVER_PID=$!
 
 # 2. Clean up both processes when stopping the script
 cleanup() {

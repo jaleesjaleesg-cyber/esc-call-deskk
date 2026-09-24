@@ -1268,7 +1268,7 @@
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <button class="btn" id="pinCompanyBtn" title="Keep this company in the shared Pinned tab">📌 Pin company</button>
           <button class="btn btn-research" id="viewFullDossierBtn">🔍 View Research Dossier</button>
-          <a href="#" id="heroDirectPhoneBtn" class="btn btn-call">📞 Call Primary</a>
+          <span id="heroDirectPhoneBtn" class="btn btn-call" style="cursor:text; user-select:all;" title="Primary phone number">📞 —</span>
           <button class="btn danger jalees-delete-control" id="deleteCompanyBtn" style="display:none;" title="Only Jalees can permanently delete a company">🗑️ Delete company</button>
         </div>
       </div>
@@ -2477,6 +2477,16 @@
     let fullStateSyncRequired = false;
     let queuedSnapshotRequest = null;
     let workspaceSettings = { unreachable_after_attempts: 2 };
+    // Edits are merged newest-wins, so every timestamp is taken on the host's
+    // clock. A laptop running minutes fast or slow must not win or lose edits.
+    let serverClockOffsetMs = 0;
+    function nowMs() { return Date.now() + serverClockOffsetMs; }
+    function noteServerClock(data, requestStartedAt) {
+      const serverTime = Number(data && data.server_time);
+      if (!Number.isFinite(serverTime) || serverTime <= 0) return;
+      const midpoint = (requestStartedAt + Date.now()) / 2;
+      serverClockOffsetMs = Math.round(serverTime - midpoint);
+    }
     let activeContactLogCrn = null;
     let activeJaleesNoteCrn = null;
     let loggerSelectionCrn = null;
@@ -2495,6 +2505,15 @@
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+    }
+
+    // Research data is scraped from the web: only allow http(s) links so a
+    // stored "javascript:" URL can never run in the Call Desk.
+    function safeUrl(value) {
+      const raw = String(value == null ? "" : value).trim();
+      if (!raw) return "#";
+      const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : "https://" + raw.replace(/^\/+/, "");
+      return /^https?:\/\//i.test(withScheme) ? withScheme : "#";
     }
 
     function getUnreachableThreshold() {
@@ -2746,7 +2765,7 @@
       }
 
       if (changed) {
-        const updatedAt = Date.now();
+        const updatedAt = nowMs();
         current.notes_updated_at = updatedAt;
         current.last_updated = updatedAt;
         current.last_caller = currentUser ? currentUser.name : "Aroosa";
@@ -2887,7 +2906,7 @@
       const allState = loadPipelineState();
       const current = getCompanyPipeline(crn);
       const isPinned = !current.is_pinned;
-      const updatedAt = Date.now();
+      const updatedAt = nowMs();
       let assignmentStatus = current.assignment_status || "unassigned";
       if (current.assigned_username && isContactAttempt) assignmentStatus = "in_progress";
       if (current.assigned_username && ["reached", "unreachable", "off_our_list", "permanently_off_our_list"].includes(finalList)) assignmentStatus = "completed";
@@ -2981,7 +3000,7 @@
         finalList = "off_our_list";
       }
 
-      const updatedAt = Date.now();
+      const updatedAt = nowMs();
       const updated = {
         ...current,
         pipeline_list: finalList,
@@ -3020,11 +3039,15 @@
       return updated;
     }
 
+    function historyRecordKey(record) {
+      return String(record.id || record.timestamp) + "|" + String(record.crn || "").toUpperCase();
+    }
+
     function appendHistoryRecord(record) {
       const history = getStoredHistory();
       history.unshift(record);
       saveStoredHistory(history);
-      pendingHistoryRecords.set(String(record.id || record.timestamp), record);
+      pendingHistoryRecords.set(historyRecordKey(record), record);
       markPendingServerSync();
       syncStateToServer(true);
       updateHistoryBadge();
@@ -3032,7 +3055,7 @@
 
     function buildHistoryRecord(comp, updated, details = {}) {
       return {
-        id: details.id || Date.now(),
+        id: details.id || nowMs(),
         timestamp: new Date().toLocaleString(),
         isoDate: new Date().toISOString().slice(0, 10),
         caller: currentUser ? currentUser.name : "Aroosa",
@@ -4057,12 +4080,13 @@
 
       filtered.forEach(r => {
         const tr = document.createElement("tr");
-        tr.innerHTML = "<td style=\"white-space:nowrap;\">" + r.timestamp + "</td>" +
-          "<td><strong>" + (r.caller || "Aroosa") + "</strong></td>" +
-          "<td>" + r.company_name + "<br><span class=\"tag crn\" style=\"font-size:8.5px;\">" + r.crn + "</span></td>" +
-          "<td style=\"font-family:monospace, monospace;\">" + (r.phone_used || "—") + "</td>" +
-          "<td><span class=\"tag pipeline-badge\">" + r.transition + "</span></td>" +
-          "<td><span class=\"tag " + (r.outcome.includes("Booked") || r.outcome.includes("Agreed") ? "status-qual" : (r.outcome.includes("Not") || r.outcome.includes("Disq") ? "status-disq" : "")) + "\">" + r.outcome + "</span></td>" +
+        const outcome = String(r.outcome || "");
+        tr.innerHTML = "<td style=\"white-space:nowrap;\">" + escapeHtml(r.timestamp) + "</td>" +
+          "<td><strong>" + escapeHtml(r.caller || "Aroosa") + "</strong></td>" +
+          "<td>" + escapeHtml(r.company_name) + "<br><span class=\"tag crn\" style=\"font-size:8.5px;\">" + escapeHtml(r.crn) + "</span></td>" +
+          "<td style=\"font-family:monospace, monospace;\">" + escapeHtml(r.phone_used || "—") + "</td>" +
+          "<td><span class=\"tag pipeline-badge\">" + escapeHtml(r.transition) + "</span></td>" +
+          "<td><span class=\"tag " + (outcome.includes("Booked") || outcome.includes("Agreed") ? "status-qual" : (outcome.includes("Not") || outcome.includes("Disq") ? "status-disq" : "")) + "\">" + escapeHtml(outcome || "—") + "</span></td>" +
           "<td style=\"max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;\" title=\"" + escapeHtml(r.notes || "") + "\">" + escapeHtml(r.notes || "—") + "</td>";
         tbody.appendChild(tr);
       });
@@ -4233,14 +4257,14 @@
         const pipe = getCompanyPipeline(c.crn);
         const tr = document.createElement("tr");
         const eventCount = getCompanyContactEvents(c.crn).length;
-        tr.innerHTML = "<td><input type=\"checkbox\" class=\"retarget-company-checkbox\" data-crn=\"" + c.crn + "\" /></td>" +
-          "<td><strong>" + c.company_name + "</strong><br><span class=\"tag crn\" style=\"font-size:8.5px;\">" + c.crn + "</span></td>" +
-          "<td><span class=\"tag pipeline-badge pipeline-" + pipe.pipeline_list + "\">" + (PIPELINE_LISTS[pipe.pipeline_list] ? PIPELINE_LISTS[pipe.pipeline_list].label : pipe.pipeline_list) + "</span></td>" +
-          "<td>" + pipe.contact_attempts + "</td>" +
-          "<td><span class=\"tag\">" + (pipe.last_outcome || "Attempted") + "</span></td>" +
-          "<td style=\"font-family:monospace, monospace;\">" + (pipe.last_phone_used || c.phone || "—") + "</td>" +
+        tr.innerHTML = "<td><input type=\"checkbox\" class=\"retarget-company-checkbox\" data-crn=\"" + escapeHtml(c.crn) + "\" /></td>" +
+          "<td><strong>" + escapeHtml(c.company_name) + "</strong><br><span class=\"tag crn\" style=\"font-size:8.5px;\">" + escapeHtml(c.crn) + "</span></td>" +
+          "<td><span class=\"tag pipeline-badge pipeline-" + escapeHtml(pipe.pipeline_list) + "\">" + escapeHtml(PIPELINE_LISTS[pipe.pipeline_list] ? PIPELINE_LISTS[pipe.pipeline_list].label : pipe.pipeline_list) + "</span></td>" +
+          "<td>" + escapeHtml(pipe.contact_attempts) + "</td>" +
+          "<td><span class=\"tag\">" + escapeHtml(pipe.last_outcome || "Attempted") + "</span></td>" +
+          "<td style=\"font-family:monospace, monospace;\">" + escapeHtml(pipe.last_phone_used || c.phone || "—") + "</td>" +
           "<td style=\"max-width:220px; white-space:normal;\"><strong>Caller:</strong> " + escapeHtml(pipe.call_notes || "—") + (pipe.jalees_notes ? "<br><strong style=\"color:#312e81;\">Jalees:</strong> " + escapeHtml(pipe.jalees_notes) : "") + "</td>" +
-          "<td><button class=\"btn btn-sm handler-contact-log-btn\" data-crn=\"" + c.crn + "\">Logs (" + getCompanyContactEvents(c.crn).length + ")</button></td>";
+          "<td><button class=\"btn btn-sm handler-contact-log-btn\" data-crn=\"" + escapeHtml(c.crn) + "\">Logs (" + getCompanyContactEvents(c.crn).length + ")</button></td>";
         tbody.appendChild(tr);
       });
       document.querySelectorAll(".handler-contact-log-btn").forEach(button => button.addEventListener("click", event => openCompanyContactLog(event.currentTarget.dataset.crn, false)));
@@ -4293,8 +4317,8 @@
           mergedState[crn] = mergePipelineEntriesByRevision(serverItem, localItem);
         }
         const historyMap = new Map();
-        serverHistory.forEach(h => { if (h && (h.id || h.timestamp)) historyMap.set(String(h.id || h.timestamp), h); });
-        getStoredHistory().forEach(h => { if (h && (h.id || h.timestamp)) historyMap.set(String(h.id || h.timestamp), h); });
+        serverHistory.forEach(h => { if (h && (h.id || h.timestamp)) historyMap.set(historyRecordKey(h), h); });
+        getStoredHistory().forEach(h => { if (h && (h.id || h.timestamp)) historyMap.set(historyRecordKey(h), h); });
         mergedHistory = Array.from(historyMap.values()).sort((a, b) => (b.id || 0) - (a.id || 0));
       }
 
@@ -4317,9 +4341,11 @@
     async function refreshSharedStateFromServer(force = false) {
       if (serverSaveInFlight || (!force && hasPendingServerSync())) return;
       try {
+        const requestStartedAt = Date.now();
         const res = await fetch("/api/state?t=" + Date.now(), { cache: "no-store" });
         if (!res.ok) throw new Error("State refresh failed: HTTP " + res.status);
         const stateData = await res.json();
+        noteServerClock(stateData, requestStartedAt);
         const revision = stateData.revision || stateData.last_updated || 0;
         if (force || revision > lastSharedStateRevision) {
           applySharedStateToUi(stateData, true);
@@ -4347,9 +4373,11 @@
 
       // Fetch persisted state from disk
       try {
+        const requestStartedAt = Date.now();
         const stateRes = await fetch("/api/state?t=" + Date.now());
         if (stateRes.ok) {
           const stateData = await stateRes.json();
+          noteServerClock(stateData, requestStartedAt);
           const hadPendingWork = hasPendingServerSync();
           applySharedStateToUi(stateData, hadPendingWork);
           setDiskStatus("saved", "💾 Saved to Host");
@@ -4617,8 +4645,7 @@
       const directPhoneBtn = document.getElementById("heroDirectPhoneBtn");
       const primaryPhone = comp.phone || (comp.phone_numbers && comp.phone_numbers[0] ? comp.phone_numbers[0].number : null);
       if (primaryPhone) {
-        const telUri = "tel:" + primaryPhone.replace(/\s+/g, "");
-        directPhoneBtn.href = telUri;
+        directPhoneBtn.textContent = "📞 " + primaryPhone;
         directPhoneBtn.style.display = "inline-flex";
       } else {
         directPhoneBtn.style.display = "none";
@@ -4657,10 +4684,9 @@
       phones.forEach(p => {
         const item = document.createElement("div");
         item.className = "phone-pill-item";
-        const telUri = "tel:" + p.number.replace(/\s+/g, "");
         item.innerHTML = "<span class=\"phone-purpose-tag\">" + escapeHtml(p.purpose || "Direct Phone") + "</span>" +
-          "<a href=\"" + telUri + "\" class=\"phone-dial-link\" title=\"Click to dial " + escapeHtml(p.number) + "\" style=\"font-family:monospace, monospace;\">" +
-          "📞 <span>" + escapeHtml(p.number) + "</span></a>";
+          "<span class=\"phone-dial-link\" style=\"font-family:monospace, monospace; user-select:all;\">" +
+          "📞 <span>" + escapeHtml(p.number || "") + "</span></span>";
         container.appendChild(item);
       });
     }
@@ -4675,7 +4701,7 @@
       if (soc.linkedin_company) {
         hasSocial = true;
         const a = document.createElement("a");
-        a.href = soc.linkedin_company;
+        a.href = safeUrl(soc.linkedin_company);
         a.target = "_blank";
         a.className = "social-link-badge linkedin";
         a.innerHTML = "<span>🔗 LinkedIn Company</span>";
@@ -4685,7 +4711,7 @@
       if (soc.facebook) {
         hasSocial = true;
         const a = document.createElement("a");
-        a.href = soc.facebook;
+        a.href = safeUrl(soc.facebook);
         a.target = "_blank";
         a.className = "social-link-badge facebook";
         a.innerHTML = "<span>📘 Facebook</span>";
@@ -4695,7 +4721,7 @@
       if (soc.instagram) {
         hasSocial = true;
         const a = document.createElement("a");
-        a.href = soc.instagram;
+        a.href = safeUrl(soc.instagram);
         a.target = "_blank";
         a.className = "social-link-badge instagram";
         a.innerHTML = "<span>📷 Instagram</span>";
@@ -4705,7 +4731,7 @@
       if (soc.twitter) {
         hasSocial = true;
         const a = document.createElement("a");
-        a.href = soc.twitter;
+        a.href = safeUrl(soc.twitter);
         a.target = "_blank";
         a.className = "social-link-badge twitter";
         a.innerHTML = "<span>🐦 Twitter/X</span>";
@@ -4716,7 +4742,7 @@
         soc.linkedin_directors.forEach(ld => {
           hasSocial = true;
           const a = document.createElement("a");
-          a.href = ld.url;
+          a.href = safeUrl(ld.url);
           a.target = "_blank";
           a.className = "social-link-badge linkedin";
           a.innerHTML = "<span>👤 " + escapeHtml(ld.name) + "</span>";
@@ -4745,13 +4771,13 @@
 
         let actionsHtml = "";
         if (ph) {
-          actionsHtml += "<a href=\"tel:" + ph.replace(/\s+/g, "") + "\" class=\"icon-btn\" title=\"Call " + escapeHtml(ph) + "\" style=\"font-family:monospace, monospace;\">📞 " + escapeHtml(ph) + "</a>";
+          actionsHtml += "<span class=\"icon-btn\" style=\"font-family:monospace, monospace; user-select:all; cursor:text;\">📞 " + escapeHtml(ph) + "</span>";
         }
         if (em) {
-          actionsHtml += "<a href=\"mailto:" + em + "\" class=\"icon-btn\" title=\"Email " + escapeHtml(em) + "\">✉️ Email</a>";
+          actionsHtml += "<a href=\"mailto:" + escapeHtml(em) + "\" class=\"icon-btn\" title=\"Email " + escapeHtml(em) + "\">✉️ Email</a>";
         }
         if (lUrl) {
-          actionsHtml += "<a href=\"" + lUrl + "\" target=\"_blank\" class=\"icon-btn\" title=\"LinkedIn Profile\">🔗 Profile</a>";
+          actionsHtml += "<a href=\"" + escapeHtml(safeUrl(lUrl)) + "\" target=\"_blank\" class=\"icon-btn\" title=\"LinkedIn Profile\">🔗 Profile</a>";
         }
 
         row.innerHTML = "<div class=\"dm-name-box\">" +
@@ -4776,14 +4802,14 @@
           pWrap.style.display = "flex";
           pWrap.style.flexWrap = "wrap";
           pWrap.style.gap = "6px";
-          phones.forEach(p => {
+          phones.filter(p => p && p.number).forEach(p => {
             const pill = document.createElement("span");
             pill.style.background = "rgba(8,40,29,0.06)";
             pill.style.border = "1px solid var(--border)";
             pill.style.padding = "3px 7px";
             pill.style.borderRadius = "3px";
             pill.style.fontSize = "11px";
-            pill.innerHTML = "<strong>" + escapeHtml(p.purpose || "Phone") + ":</strong> <a href=\"tel:" + p.number.replace(/\s+/g, "") + "\" style=\"color:var(--forest); font-weight:750; text-decoration:none; font-family:monospace, monospace;\">" + escapeHtml(p.number) + "</a>";
+            pill.innerHTML = "<strong>" + escapeHtml(p.purpose || "Phone") + ":</strong> <span style=\"color:var(--forest); font-weight:750; font-family:monospace, monospace; user-select:all;\">" + escapeHtml(p.number) + "</span>";
             pWrap.appendChild(pill);
           });
           contactsBox.appendChild(pWrap);
@@ -4791,13 +4817,13 @@
 
         const soc = comp.social_profiles || {};
         const socItems = [];
-        if (soc.linkedin_company) socItems.push("<a href=\"" + soc.linkedin_company + "\" target=\"_blank\" style=\"color:var(--forest); font-weight:700;\">🔗 LinkedIn Page</a>");
-        if (soc.facebook) socItems.push("<a href=\"" + soc.facebook + "\" target=\"_blank\" style=\"color:var(--forest); font-weight:700;\">📘 Facebook</a>");
-        if (soc.instagram) socItems.push("<a href=\"" + soc.instagram + "\" target=\"_blank\" style=\"color:var(--forest); font-weight:700;\">📷 Instagram</a>");
-        if (soc.twitter) socItems.push("<a href=\"" + soc.twitter + "\" target=\"_blank\" style=\"color:var(--forest); font-weight:700;\">🐦 Twitter/X</a>");
+        if (soc.linkedin_company) socItems.push("<a href=\"" + escapeHtml(safeUrl(soc.linkedin_company)) + "\" target=\"_blank\" style=\"color:var(--forest); font-weight:700;\">🔗 LinkedIn Page</a>");
+        if (soc.facebook) socItems.push("<a href=\"" + escapeHtml(safeUrl(soc.facebook)) + "\" target=\"_blank\" style=\"color:var(--forest); font-weight:700;\">📘 Facebook</a>");
+        if (soc.instagram) socItems.push("<a href=\"" + escapeHtml(safeUrl(soc.instagram)) + "\" target=\"_blank\" style=\"color:var(--forest); font-weight:700;\">📷 Instagram</a>");
+        if (soc.twitter) socItems.push("<a href=\"" + escapeHtml(safeUrl(soc.twitter)) + "\" target=\"_blank\" style=\"color:var(--forest); font-weight:700;\">🐦 Twitter/X</a>");
         if (soc.linkedin_directors) {
           soc.linkedin_directors.forEach(ld => {
-            socItems.push("<a href=\"" + ld.url + "\" target=\"_blank\" style=\"color:var(--forest); font-weight:700;\">👤 " + escapeHtml(ld.name) + " (LinkedIn)</a>");
+            socItems.push("<a href=\"" + escapeHtml(safeUrl(ld.url)) + "\" target=\"_blank\" style=\"color:var(--forest); font-weight:700;\">👤 " + escapeHtml(ld.name) + " (LinkedIn)</a>");
           });
         }
         if (socItems.length > 0) {
@@ -5016,10 +5042,10 @@
           : (result.matchingPhone ? "<span>☎ " + escapeHtml(result.matchingPhone) + "</span>" : "");
 
         item.innerHTML = "<div>" +
-          "<div class=\"res-name\">" + (pipe.is_pinned ? "📌 " : "") + c.company_name + "</div>" +
+          "<div class=\"res-name\">" + (pipe.is_pinned ? "📌 " : "") + escapeHtml(c.company_name) + "</div>" +
           "<div class=\"res-meta\">" +
           "<span class=\"tag crn\" style=\"font-size:9px\">" + c.crn + "</span>" +
-          "<span>" + (c.rank ? "Rank #" + c.rank : (c.primary_service_verdict || "Security")) + "</span>" +
+          "<span>" + escapeHtml(c.rank ? "Rank #" + c.rank : (c.primary_service_verdict || "Security")) + "</span>" +
           phoneHtml +
           "<span>📍 " + (c.operational_address ? c.operational_address.slice(0, 30) : (c.registered_address ? c.registered_address.slice(0, 30) : "")) + "...</span>" +
           "</div>" +
@@ -5118,7 +5144,7 @@
       }
       const note = document.getElementById("jaleesNotesTextarea").value.trim();
       const current = getCompanyPipeline(activeJaleesNoteCrn);
-      const updatedAt = Date.now();
+      const updatedAt = nowMs();
       current.jalees_notes = note;
       current.jalees_notes_updated_at = updatedAt;
       current.jalees_notes_updated_by = currentUser.name;
@@ -5412,8 +5438,8 @@
         const tr = document.createElement("tr");
 
         const phonesHtml = (c.phone_numbers && c.phone_numbers.length > 0)
-          ? c.phone_numbers.map(p => "<div style=\"margin-bottom:2px;\"><small style=\"color:var(--text-muted); font-size:9.5px;\">[" + escapeHtml(p.purpose || "Phone") + "]:</small> <a href=\"tel:" + p.number.replace(/\s+/g,"") + "\" style=\"color:var(--text); text-decoration:none; font-weight:700; font-family:monospace, monospace;\">" + escapeHtml(p.number) + "</a></div>").join("")
-          : (c.phone ? "<a href=\"tel:" + c.phone.replace(/\s+/g,"") + "\" style=\"color:var(--text); text-decoration:none; font-family:monospace, monospace;\">" + c.phone + "</a>" : "—");
+          ? c.phone_numbers.map(p => "<div style=\"margin-bottom:2px;\"><small style=\"color:var(--text-muted); font-size:9.5px;\">[" + escapeHtml(p.purpose || "Phone") + "]:</small> <span style=\"color:var(--text); font-weight:700; font-family:monospace, monospace; user-select:all;\">" + escapeHtml(p.number || "") + "</span></div>").join("")
+          : (c.phone ? "<span style=\"color:var(--text); font-family:monospace, monospace; user-select:all;\">" + escapeHtml(c.phone) + "</span>" : "—");
 
         tr.innerHTML = "<td><input type=\"checkbox\" class=\"pipeline-company-checkbox\" data-crn=\"" + c.crn + "\" " + (pipelineSelectedCrns.has(c.crn) ? "checked" : "") + " /></td>" +
           "<td><strong>" + (pipe.is_pinned ? "📌 " : "") + escapeHtml(c.company_name) + "</strong><br><span class=\"tag crn\" style=\"font-size:9px;\">" + escapeHtml(c.crn) + "</span></td>" +

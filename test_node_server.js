@@ -425,6 +425,65 @@ test('Node server preserves routing revisions and tombstones deleted companies',
   assert.ok(Number(status.workspace_revision) > 0);
 });
 
+test('history clear, same-millisecond events, restore safety and server clock', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esc-node-test-'));
+  fs.mkdirSync(path.join(dataDir, 'snapshots'));
+  writeJson(dataDir, 'companies_intelligence.json', {
+    AAA111: { crn: 'AAA111', company_name: 'Alpha Guarding Ltd' },
+    BBB222: { crn: 'BBB222', company_name: 'Beta Patrols Ltd' }
+  });
+  writeJson(dataDir, 'pipeline_state.json', { AAA111: { pipeline_list: 'reached', last_updated: 1 } });
+  writeJson(dataDir, 'call_history.json', [{ id: 1000, crn: 'AAA111', outcome: 'Spoke to DM' }]);
+  writeJson(dataDir, 'workspace_settings.json', { unreachable_after_attempts: 2 });
+  writeJson(dataDir, 'deleted_companies.json', {});
+  writeJson(dataDir, 'metadata.json', { status: 'active', total_prospects: 2 });
+
+  const port = 34000 + (process.pid % 1000);
+  const child = startTestServer(dataDir, port);
+  t.after(() => {
+    if (!child.killed) child.kill('SIGTERM');
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+  await waitForServer(child);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const cookie = await login(baseUrl, 'jalees', 'jalees');
+
+  // A second event with the same millisecond id on a different company must be kept.
+  let response = await api(baseUrl, cookie, '/api/state', {
+    method: 'POST',
+    body: JSON.stringify({ pipeline_state: {}, call_history: [{ id: 1000, crn: 'BBB222', outcome: 'No answer' }] })
+  });
+  assert.equal(response.status, 200);
+  assert.ok(Number((await response.json()).server_time) > 0);
+  response = await api(baseUrl, cookie, '/api/state');
+  const state = await response.json();
+  assert.equal(state.call_history.length, 2);
+  assert.ok(Number(state.server_time) > 0);
+
+  // Clearing history used to crash the whole server (undefined created_by).
+  response = await api(baseUrl, cookie, '/api/history/clear', { method: 'POST', body: '{}' });
+  assert.equal(response.status, 200);
+  response = await api(baseUrl, cookie, '/api/state');
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).call_history.length, 0);
+
+  // Restoring the pre-clear snapshot first records a pre-restore safety point.
+  response = await api(baseUrl, cookie, '/api/snapshots');
+  const preClear = (await response.json()).snapshots.find(s => s.type === 'pre_clear_history');
+  assert.ok(preClear);
+  response = await api(baseUrl, cookie, '/api/snapshots/restore', { method: 'POST', body: JSON.stringify({ id: preClear.id }) });
+  assert.equal(response.status, 200);
+  const restored = (await response.json()).restored;
+  assert.equal(restored.call_history.length, 2);
+  assert.equal(restored.safety_snapshot.type, 'pre_restore');
+  const safety = JSON.parse(fs.readFileSync(path.join(dataDir, 'snapshots', restored.safety_snapshot.filename), 'utf8'));
+  assert.equal(safety.call_history.length, 0);
+
+  // Search reports the live pipeline list, not the compiled research value.
+  response = await api(baseUrl, cookie, '/api/companies/search?q=Alpha');
+  assert.equal((await response.json()).results[0].pipeline_list, 'reached');
+});
+
 test('database-required mode fails closed when credentials are missing', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esc-node-required-db-'));
   fs.mkdirSync(path.join(dataDir, 'snapshots'));
