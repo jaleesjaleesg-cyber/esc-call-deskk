@@ -10,6 +10,35 @@ const phoneSearch = require('./phone_search');
 const app = express();
 const autoCommitRuns = new Map();
 
+// Auto-load .env if present into process.env
+const envCandidates = [
+  path.join(__dirname, '.env'),
+  path.join(process.cwd(), '.env'),
+  path.join(__dirname, '../../config/.env')
+];
+for (const envFile of envCandidates) {
+  if (fs.existsSync(envFile)) {
+    try {
+      const raw = fs.readFileSync(envFile, 'utf8');
+      raw.split(/\r?\n/).forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        const idx = trimmed.indexOf('=');
+        if (idx > 0) {
+          const key = trimmed.slice(0, idx).trim();
+          let val = trimmed.slice(idx + 1).trim();
+          if ((val.startsWith('\'') && val.endsWith('\'')) || (val.startsWith('"') && val.endsWith('"'))) {
+            val = val.slice(1, -1);
+          }
+          if (process.env[key] === undefined || process.env[key] === '') {
+            process.env[key] = val;
+          }
+        }
+      });
+    } catch (_) {}
+  }
+}
+
 // Hostinger routes Node.js Web Apps to port 3000 when it does not inject PORT.
 // Preserve platform overrides while using the required production fallback.
 const PORT = Number(process.env.PORT) || 3000;
@@ -35,7 +64,7 @@ const persistentStore = new PersistentStore({ dataDir: DATA_DIR, snapshotsDir: S
 const cloudResearchBridge = new CloudResearchBridge({
   baseUrl: process.env.ESC_RESEARCH_CONTROL_URL,
   secret: process.env.ESC_RESEARCH_BRIDGE_SECRET,
-  timeoutMs: Number(process.env.ESC_RESEARCH_BRIDGE_TIMEOUT_MS || 15000),
+  timeoutMs: Number(process.env.ESC_RESEARCH_BRIDGE_TIMEOUT_MS || 30000),
   // Production is HTTPS-only. This narrow localhost exception exists solely
   // so the offline integration suite can exercise the signed bridge.
   allowInsecureHttp: process.env.NODE_ENV === 'test' && process.env.ESC_RESEARCH_ALLOW_HTTP === '1'
